@@ -31,8 +31,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
 lib64/
+# Note: lib/ removed to allow product/frontend/src/lib/
 parts/
 sdist/
 var/
@@ -83,3 +83,7 @@ logs/
 product/dist/
 product/build/
 product/.next/
+product/frontend/dist/
+
+# === Data files (PDFs, etc) ===
+data/*.pdf

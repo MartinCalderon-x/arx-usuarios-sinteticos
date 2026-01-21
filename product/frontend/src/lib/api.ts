@@ -1,0 +1,324 @@
+import { supabase } from './supabase';
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
+async function getAuthHeaders(): Promise<HeadersInit> {
+  const { data: { session } } = await supabase.auth.getSession();
+  return {
+    'Content-Type': 'application/json',
+    ...(session?.access_token && { Authorization: `Bearer ${session.access_token}` }),
+  };
+}
+
+async function handleResponse<T>(response: Response): Promise<T> {
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+    throw new Error(error.detail || `Error ${response.status}`);
+  }
+  return response.json();
+}
+
+// Arquetipos
+export const arquetiposApi = {
+  list: async () => {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/arquetipos/`, { headers });
+    return handleResponse<{ arquetipos: Arquetipo[]; total: number }>(response);
+  },
+
+  get: async (id: string) => {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/arquetipos/${id}`, { headers });
+    return handleResponse<Arquetipo>(response);
+  },
+
+  create: async (data: ArquetipoCreate) => {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/arquetipos/`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(data),
+    });
+    return handleResponse<Arquetipo>(response);
+  },
+
+  update: async (id: string, data: ArquetipoCreate) => {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/arquetipos/${id}`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify(data),
+    });
+    return handleResponse<Arquetipo>(response);
+  },
+
+  delete: async (id: string) => {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/arquetipos/${id}`, {
+      method: 'DELETE',
+      headers,
+    });
+    return handleResponse<{ message: string }>(response);
+  },
+
+  templates: async () => {
+    const response = await fetch(`${API_URL}/api/arquetipos/templates/`);
+    return handleResponse<{ templates: ArquetipoTemplate[] }>(response);
+  },
+};
+
+// Analisis
+export const analisisApi = {
+  list: async () => {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/analisis/`, { headers });
+    return handleResponse<{ analisis: Analisis[]; total: number }>(response);
+  },
+
+  get: async (id: string) => {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/analisis/${id}`, { headers });
+    return handleResponse<Analisis>(response);
+  },
+
+  analyzeUrl: async (url: string, tipoAnalisis: string[] = ['heatmap', 'focus_map', 'aoi']) => {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/analisis/url`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ url, tipo_analisis: tipoAnalisis }),
+    });
+    return handleResponse<Analisis>(response);
+  },
+
+  analyzeImage: async (file: File) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await fetch(`${API_URL}/api/analisis/imagen`, {
+      method: 'POST',
+      headers: {
+        ...(session?.access_token && { Authorization: `Bearer ${session.access_token}` }),
+      },
+      body: formData,
+    });
+    return handleResponse<Analisis>(response);
+  },
+
+  compare: async (imagenAUrl: string, imagenBUrl: string) => {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/analisis/comparar?imagen_a_url=${encodeURIComponent(imagenAUrl)}&imagen_b_url=${encodeURIComponent(imagenBUrl)}`, {
+      method: 'POST',
+      headers,
+    });
+    return handleResponse<AnalisisComparison>(response);
+  },
+};
+
+// Interaccion
+export const interaccionApi = {
+  chat: async (arquetipoId: string, mensaje: string, sessionId?: string, imagenUrl?: string) => {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/interaccion/chat`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        arquetipo_id: arquetipoId,
+        mensaje,
+        session_id: sessionId,
+        imagen_url: imagenUrl,
+      }),
+    });
+    return handleResponse<ChatResponse>(response);
+  },
+
+  evaluate: async (arquetipoId: string, imagenUrl: string, contexto?: string, preguntas?: string[]) => {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/interaccion/evaluar`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        arquetipo_id: arquetipoId,
+        imagen_url: imagenUrl,
+        contexto,
+        preguntas,
+      }),
+    });
+    return handleResponse<EvaluacionResponse>(response);
+  },
+
+  getHistory: async (sessionId: string) => {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/interaccion/historial/${sessionId}`, { headers });
+    return handleResponse<{ session_id: string; mensajes: Mensaje[]; total: number }>(response);
+  },
+
+  listSessions: async (arquetipoId?: string) => {
+    const headers = await getAuthHeaders();
+    const url = arquetipoId
+      ? `${API_URL}/api/interaccion/sesiones?arquetipo_id=${arquetipoId}`
+      : `${API_URL}/api/interaccion/sesiones`;
+    const response = await fetch(url, { headers });
+    return handleResponse<{ sesiones: Sesion[]; total: number }>(response);
+  },
+};
+
+// Reportes
+export const reportesApi = {
+  list: async () => {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/reportes/`, { headers });
+    return handleResponse<{ reportes: Reporte[]; total: number }>(response);
+  },
+
+  generate: async (data: ReporteRequest) => {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/reportes/generar`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(data),
+    });
+    return handleResponse<Reporte>(response);
+  },
+
+  download: async (id: string) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const response = await fetch(`${API_URL}/api/reportes/${id}/descargar`, {
+      headers: {
+        ...(session?.access_token && { Authorization: `Bearer ${session.access_token}` }),
+      },
+    });
+    if (!response.ok) {
+      throw new Error('Error al descargar reporte');
+    }
+    return response.blob();
+  },
+
+  delete: async (id: string) => {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/reportes/${id}`, {
+      method: 'DELETE',
+      headers,
+    });
+    return handleResponse<{ message: string }>(response);
+  },
+};
+
+// Types
+export interface Arquetipo {
+  id: string;
+  nombre: string;
+  descripcion?: string;
+  edad?: number;
+  genero?: string;
+  ocupacion?: string;
+  contexto?: string;
+  comportamiento?: string;
+  frustraciones?: string[];
+  objetivos?: string[];
+  created_at?: string;
+}
+
+export interface ArquetipoCreate {
+  nombre: string;
+  descripcion: string;
+  edad?: number;
+  genero?: string;
+  ocupacion?: string;
+  contexto?: string;
+  comportamiento?: string;
+  frustraciones?: string[];
+  objetivos?: string[];
+  template_id?: string;
+}
+
+export interface ArquetipoTemplate {
+  id: string;
+  nombre: string;
+  descripcion: string;
+  edad?: number;
+  ocupacion?: string;
+}
+
+export interface Analisis {
+  id: string;
+  imagen_url: string;
+  heatmap_url?: string;
+  focus_map_url?: string;
+  clarity_score?: number;
+  areas_interes?: AreaInteres[];
+  insights?: string[];
+  created_at?: string;
+}
+
+export interface AreaInteres {
+  nombre: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  intensidad: number;
+  orden_visual: number;
+}
+
+export interface AnalisisComparison {
+  imagen_a: { url: string; analisis: Analisis };
+  imagen_b: { url: string; analisis: Analisis };
+  comparacion: {
+    ganador: string;
+    diferencias_clave: string[];
+    recomendaciones: string[];
+  };
+}
+
+export interface ChatResponse {
+  respuesta: string;
+  session_id: string;
+  fricciones?: string[];
+  emociones?: Record<string, unknown>;
+}
+
+export interface EvaluacionResponse {
+  feedback: string;
+  puntuacion?: number;
+  fricciones: string[];
+  sugerencias: string[];
+  emociones: Record<string, unknown>;
+}
+
+export interface Mensaje {
+  id: string;
+  rol: 'usuario' | 'sintetico';
+  contenido: string;
+  imagen_url?: string;
+  fricciones?: string[];
+  emociones?: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface Sesion {
+  id: string;
+  arquetipo_id: string;
+  contexto?: string;
+  estado: string;
+  created_at: string;
+}
+
+export interface Reporte {
+  id: string;
+  titulo: string;
+  formato: string;
+  url?: string;
+  created_at: string;
+}
+
+export interface ReporteRequest {
+  titulo: string;
+  formato?: 'pdf' | 'pptx';
+  arquetipos_ids?: string[];
+  analisis_ids?: string[];
+  sesiones_ids?: string[];
+  incluir_resumen?: boolean;
+  incluir_recomendaciones?: boolean;
+}

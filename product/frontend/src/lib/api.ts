@@ -18,6 +18,17 @@ async function handleResponse<T>(response: Response): Promise<T> {
   return response.json();
 }
 
+// Helper to clean empty strings from objects before sending to API
+function cleanEmptyValues(obj: object): object {
+  const cleaned: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value === '' || value === undefined || value === null) continue;
+    if (Array.isArray(value) && value.length === 0) continue;
+    cleaned[key] = value;
+  }
+  return cleaned;
+}
+
 // Arquetipos
 export const arquetiposApi = {
   list: async () => {
@@ -37,7 +48,7 @@ export const arquetiposApi = {
     const response = await fetch(`${API_URL}/api/arquetipos/`, {
       method: 'POST',
       headers,
-      body: JSON.stringify(data),
+      body: JSON.stringify(cleanEmptyValues(data)),
     });
     return handleResponse<Arquetipo>(response);
   },
@@ -47,7 +58,7 @@ export const arquetiposApi = {
     const response = await fetch(`${API_URL}/api/arquetipos/${id}`, {
       method: 'PUT',
       headers,
-      body: JSON.stringify(data),
+      body: JSON.stringify(cleanEmptyValues(data)),
     });
     return handleResponse<Arquetipo>(response);
   },

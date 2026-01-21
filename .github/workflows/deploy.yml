@@ -38,8 +38,13 @@ env:
   REGION: us-central1
 
 jobs:
-  deploy:
+  # ============================================
+  # Backend Deployment
+  # ============================================
+  deploy-backend:
     runs-on: ubuntu-latest
+    outputs:
+      backend_url: ${{ steps.get-url.outputs.url }}
 
     steps:
       - name: Checkout
@@ -50,7 +55,6 @@ jobs:
         run: |
           if [[ "${{ github.event.inputs.environment }}" == "prod" ]]; then
             echo "environment=prod" >> $GITHUB_OUTPUT
-            # Use latest tag if exists, otherwise use commit SHA
             LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
             if [[ -n "$LATEST_TAG" ]]; then
               echo "image_tag=${LATEST_TAG}" >> $GITHUB_OUTPUT
@@ -75,14 +79,14 @@ jobs:
       - name: Configure Docker
         run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
 
-      - name: Build and Push
+      - name: Build and Push Backend
         run: |
           IMAGE="${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GCP_REPO_NAME }}/${{ secrets.GCP_SERVICE_NAME }}:${{ steps.env.outputs.image_tag }}"
           docker build -t $IMAGE -f Dockerfile .
           docker push $IMAGE
           echo "IMAGE=$IMAGE" >> $GITHUB_ENV
 
-      - name: Deploy to Cloud Run (DEV)
+      - name: Deploy Backend to Cloud Run (DEV)
         if: steps.env.outputs.environment == 'dev'
         run: |
           gcloud run deploy ${{ secrets.GCP_SERVICE_NAME }}-dev \
@@ -103,7 +107,7 @@ jobs:
             --set-env-vars "API_PORT=8080" \
             --set-env-vars "CORS_ORIGINS=*"
 
-      - name: Deploy to Cloud Run (PROD)
+      - name: Deploy Backend to Cloud Run (PROD)
         if: steps.env.outputs.environment == 'prod'
         run: |
           gcloud run deploy ${{ secrets.GCP_SERVICE_NAME }} \
@@ -125,15 +129,104 @@ jobs:
             --set-env-vars "API_PORT=8080" \
             --set-env-vars "CORS_ORIGINS=*"
 
-      - name: Output URL
+      - name: Get Backend URL
+        id: get-url
         run: |
           SERVICE_NAME="${{ secrets.GCP_SERVICE_NAME }}"
           if [[ "${{ steps.env.outputs.environment }}" == "dev" ]]; then
             SERVICE_NAME="${SERVICE_NAME}-dev"
           fi
           URL=$(gcloud run services describe $SERVICE_NAME --region ${{ env.REGION }} --format 'value(status.url)')
+          echo "url=$URL" >> $GITHUB_OUTPUT
+
+  # ============================================
+  # Frontend Deployment
+  # ============================================
+  deploy-frontend:
+    runs-on: ubuntu-latest
+    needs: deploy-backend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set environment
+        id: env
+        run: |
+          if [[ "${{ github.event.inputs.environment }}" == "prod" ]]; then
+            echo "environment=prod" >> $GITHUB_OUTPUT
+            echo "image_tag=frontend-prod-$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
+          else
+            echo "environment=dev" >> $GITHUB_OUTPUT
+            echo "image_tag=frontend-dev-$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: '${{ secrets.GCP_SA_KEY }}'
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Configure Docker
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
+
+      - name: Build and Push Frontend
+        working-directory: product/frontend
+        run: |
+          IMAGE="${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GCP_REPO_NAME }}/${{ secrets.GCP_SERVICE_NAME }}-frontend:${{ steps.env.outputs.image_tag }}"
+          docker build -t $IMAGE \
+            --build-arg VITE_SUPABASE_URL=${{ secrets.SUPABASE_URL }} \
+            --build-arg VITE_SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }} \
+            --build-arg VITE_API_URL=${{ needs.deploy-backend.outputs.backend_url }} \
+            -f Dockerfile .
+          docker push $IMAGE
+          echo "IMAGE=$IMAGE" >> $GITHUB_ENV
+
+      - name: Deploy Frontend to Cloud Run (DEV)
+        if: steps.env.outputs.environment == 'dev'
+        run: |
+          gcloud run deploy ${{ secrets.GCP_SERVICE_NAME }}-frontend-dev \
+            --image ${{ env.IMAGE }} \
+            --region ${{ env.REGION }} \
+            --platform managed \
+            --allow-unauthenticated \
+            --memory 256Mi \
+            --cpu 1 \
+            --max-instances 3
+
+      - name: Deploy Frontend to Cloud Run (PROD)
+        if: steps.env.outputs.environment == 'prod'
+        run: |
+          gcloud run deploy ${{ secrets.GCP_SERVICE_NAME }}-frontend \
+            --image ${{ env.IMAGE }} \
+            --region ${{ env.REGION }} \
+            --platform managed \
+            --allow-unauthenticated \
+            --memory 256Mi \
+            --cpu 1 \
+            --min-instances 1 \
+            --max-instances 5
+
+      - name: Output URLs
+        run: |
+          SERVICE_NAME="${{ secrets.GCP_SERVICE_NAME }}"
+          if [[ "${{ steps.env.outputs.environment }}" == "dev" ]]; then
+            FRONTEND_SERVICE="${SERVICE_NAME}-frontend-dev"
+            BACKEND_SERVICE="${SERVICE_NAME}-dev"
+          else
+            FRONTEND_SERVICE="${SERVICE_NAME}-frontend"
+            BACKEND_SERVICE="${SERVICE_NAME}"
+          fi
+          FRONTEND_URL=$(gcloud run services describe $FRONTEND_SERVICE --region ${{ env.REGION }} --format 'value(status.url)')
+          BACKEND_URL=$(gcloud run services describe $BACKEND_SERVICE --region ${{ env.REGION }} --format 'value(status.url)')
           echo "## Deployment Complete! :rocket:" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Environment:** ${{ steps.env.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Image Tag:** ${{ steps.env.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
-          echo "**URL:** $URL" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### URLs" >> $GITHUB_STEP_SUMMARY
+          echo "- **Frontend:** $FRONTEND_URL" >> $GITHUB_STEP_SUMMARY
+          echo "- **Backend:** $BACKEND_URL" >> $GITHUB_STEP_SUMMARY

@@ -6,6 +6,7 @@ import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
 import { Arquetipos } from './pages/Arquetipos';
 import { ArquetipoForm } from './pages/ArquetipoForm';
+import { ArquetipoDetail } from './pages/ArquetipoDetail';
 import { AnalisisPage } from './pages/Analisis';
 import { AnalisisForm } from './pages/AnalisisForm';
 import { Interaccion } from './pages/Interaccion';
@@ -81,6 +82,7 @@ function AppRoutes() {
         <Route index element={<Dashboard />} />
         <Route path="arquetipos" element={<Arquetipos />} />
         <Route path="arquetipos/nuevo" element={<ArquetipoForm />} />
+        <Route path="arquetipos/:id" element={<ArquetipoDetail />} />
         <Route path="arquetipos/:id/editar" element={<ArquetipoForm />} />
         <Route path="analisis" element={<AnalisisPage />} />
         <Route path="analisis/nuevo" element={<AnalisisForm />} />

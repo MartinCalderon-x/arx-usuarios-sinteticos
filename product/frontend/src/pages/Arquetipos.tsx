@@ -1,12 +1,20 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Plus, User, Trash2, Edit, Search } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Plus, User, Trash2, Edit, Search, Copy, Eye } from 'lucide-react';
 import { arquetiposApi, type Arquetipo } from '../lib/api';
 
+const NIVEL_COLORS: Record<string, string> = {
+  bajo: 'bg-error/10 text-error',
+  medio: 'bg-warning/10 text-warning',
+  alto: 'bg-success/10 text-success',
+};
+
 export function Arquetipos() {
+  const navigate = useNavigate();
   const [arquetipos, setArquetipos] = useState<Arquetipo[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [filterIndustria, setFilterIndustria] = useState('');
 
   useEffect(() => {
     loadArquetipos();
@@ -33,10 +41,31 @@ export function Arquetipos() {
     }
   }
 
-  const filtered = arquetipos.filter(a =>
-    a.nombre.toLowerCase().includes(search.toLowerCase()) ||
-    a.descripcion?.toLowerCase().includes(search.toLowerCase())
-  );
+  async function handleDuplicate(arquetipo: Arquetipo) {
+    try {
+      const { id, created_at, ...rest } = arquetipo;
+      await arquetiposApi.create({
+        ...rest,
+        nombre: `${rest.nombre} (copia)`,
+        descripcion: rest.descripcion || '',
+      });
+      loadArquetipos();
+    } catch (error) {
+      console.error('Error duplicating arquetipo:', error);
+      alert('Error al duplicar el arquetipo');
+    }
+  }
+
+  // Get unique industries for filter
+  const industrias = [...new Set(arquetipos.map(a => a.industria).filter(Boolean))];
+
+  const filtered = arquetipos.filter(a => {
+    const matchesSearch =
+      a.nombre.toLowerCase().includes(search.toLowerCase()) ||
+      a.descripcion?.toLowerCase().includes(search.toLowerCase());
+    const matchesIndustria = !filterIndustria || a.industria === filterIndustria;
+    return matchesSearch && matchesIndustria;
+  });
 
   return (
     <div className="space-y-6">
@@ -55,16 +84,30 @@ export function Arquetipos() {
         </Link>
       </div>
 
-      {/* Search */}
-      <div className="relative">
-        <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Buscar arquetipos..."
-          className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-border bg-bg-primary text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
-        />
+      {/* Filters */}
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="relative flex-1">
+          <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Buscar arquetipos..."
+            className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-border bg-bg-primary text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
+          />
+        </div>
+        {industrias.length > 0 && (
+          <select
+            value={filterIndustria}
+            onChange={(e) => setFilterIndustria(e.target.value)}
+            className="px-4 py-2.5 rounded-lg border border-border bg-bg-primary text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
+          >
+            <option value="">Todas las industrias</option>
+            {industrias.map(ind => (
+              <option key={ind} value={ind} className="capitalize">{ind}</option>
+            ))}
+          </select>
+        )}
       </div>
 
       {/* List */}
@@ -82,12 +125,12 @@ export function Arquetipos() {
         <div className="text-center py-12 bg-bg-secondary rounded-xl border border-border">
           <User size={48} className="mx-auto text-text-muted mb-4" />
           <h3 className="text-lg font-medium text-text-primary mb-2">
-            {search ? 'No se encontraron arquetipos' : 'No hay arquetipos'}
+            {search || filterIndustria ? 'No se encontraron arquetipos' : 'No hay arquetipos'}
           </h3>
           <p className="text-text-secondary mb-4">
-            {search ? 'Intenta con otra busqueda' : 'Crea tu primer arquetipo para comenzar'}
+            {search || filterIndustria ? 'Intenta con otra busqueda' : 'Crea tu primer arquetipo para comenzar'}
           </p>
-          {!search && (
+          {!search && !filterIndustria && (
             <Link
               to="/arquetipos/nuevo"
               className="inline-flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-dark text-white rounded-lg transition-colors"
@@ -102,22 +145,38 @@ export function Arquetipos() {
           {filtered.map(arquetipo => (
             <div
               key={arquetipo.id}
-              className="bg-bg-secondary rounded-xl p-6 border border-border hover:border-border-dark transition-colors"
+              className="bg-bg-secondary rounded-xl p-6 border border-border hover:border-border-dark transition-colors group"
             >
               <div className="flex items-start justify-between mb-3">
                 <div className="p-2 bg-primary/10 rounded-lg">
                   <User size={20} className="text-primary" />
                 </div>
-                <div className="flex gap-1">
+                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button
+                    onClick={() => navigate(`/arquetipos/${arquetipo.id}`)}
+                    className="p-2 text-text-muted hover:text-primary hover:bg-bg-tertiary rounded-lg transition-colors"
+                    title="Ver detalle"
+                  >
+                    <Eye size={16} />
+                  </button>
+                  <button
+                    onClick={() => handleDuplicate(arquetipo)}
+                    className="p-2 text-text-muted hover:text-secondary hover:bg-bg-tertiary rounded-lg transition-colors"
+                    title="Duplicar"
+                  >
+                    <Copy size={16} />
+                  </button>
                   <Link
                     to={`/arquetipos/${arquetipo.id}/editar`}
                     className="p-2 text-text-muted hover:text-primary hover:bg-bg-tertiary rounded-lg transition-colors"
+                    title="Editar"
                   >
                     <Edit size={16} />
                   </Link>
                   <button
                     onClick={() => handleDelete(arquetipo.id)}
                     className="p-2 text-text-muted hover:text-error hover:bg-error/10 rounded-lg transition-colors"
+                    title="Eliminar"
                   >
                     <Trash2 size={16} />
                   </button>
@@ -130,12 +189,22 @@ export function Arquetipos() {
               <div className="flex flex-wrap gap-2 text-xs">
                 {arquetipo.edad && (
                   <span className="px-2 py-1 bg-bg-tertiary text-text-secondary rounded">
-                    {arquetipo.edad} anos
+                    {arquetipo.edad} años
                   </span>
                 )}
                 {arquetipo.ocupacion && (
                   <span className="px-2 py-1 bg-bg-tertiary text-text-secondary rounded">
                     {arquetipo.ocupacion}
+                  </span>
+                )}
+                {arquetipo.nivel_digital && (
+                  <span className={`px-2 py-1 rounded capitalize ${NIVEL_COLORS[arquetipo.nivel_digital] || 'bg-bg-tertiary text-text-secondary'}`}>
+                    {arquetipo.nivel_digital}
+                  </span>
+                )}
+                {arquetipo.industria && (
+                  <span className="px-2 py-1 bg-secondary/10 text-secondary rounded capitalize">
+                    {arquetipo.industria}
                   </span>
                 )}
               </div>

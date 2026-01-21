@@ -217,6 +217,8 @@ export interface Arquetipo {
   comportamiento?: string;
   frustraciones?: string[];
   objetivos?: string[];
+  nivel_digital?: string;
+  industria?: string;
   created_at?: string;
 }
 
@@ -230,15 +232,23 @@ export interface ArquetipoCreate {
   comportamiento?: string;
   frustraciones?: string[];
   objetivos?: string[];
+  nivel_digital?: string;
+  industria?: string;
   template_id?: string;
 }
 
 export interface ArquetipoTemplate {
   id: string;
   nombre: string;
+  categoria: string;
   descripcion: string;
   edad?: number;
   ocupacion?: string;
+  nivel_digital?: string;
+  industria?: string;
+  comportamiento?: string;
+  frustraciones?: string[];
+  objetivos?: string[];
 }
 
 export interface Analisis {

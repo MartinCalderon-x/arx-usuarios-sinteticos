@@ -1,0 +1,9 @@
+# Local Data Directory
+#
+# This directory stores local runtime data:
+# - vectordb/  : ChromaDB persistence (CHROMA_PERSIST_DIR)
+# - cache/     : LLM response cache, embeddings cache
+# - logs/      : Application logs
+#
+# Contents are gitignored (except this file).
+# Created automatically by scripts/setup.sh

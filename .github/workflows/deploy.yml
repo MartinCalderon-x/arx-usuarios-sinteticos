@@ -1,0 +1,117 @@
+# ============================================
+# Cloud Run Deployment
+# ============================================
+# Deploys to Google Cloud Run on:
+# - Push to develop branch -> DEV environment
+# - Push of v* tags -> PROD environment
+# - Manual dispatch
+#
+# Required GitHub Secrets:
+# - GCP_PROJECT_ID: Your GCP project ID
+# - GCP_REPO_NAME: Artifact Registry repository name
+# - GCP_SERVICE_NAME: Cloud Run service name
+# - GCP_SA_KEY: Service account key (JSON)
+# - ARX_CODEX_URL: Arx-Codex Supabase URL
+# - ARX_CODEX_SECRET_KEY: Arx-Codex secret key
+# ============================================
+
+name: Deploy to Cloud Run
+
+on:
+  push:
+    branches: [develop]
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - prod
+
+env:
+  REGION: us-central1
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set environment
+        id: env
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "environment=prod" >> $GITHUB_OUTPUT
+            echo "image_tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.event.inputs.environment }}" == "prod" ]]; then
+            echo "environment=prod" >> $GITHUB_OUTPUT
+            echo "image_tag=manual-$(date +%Y%m%d-%H%M%S)" >> $GITHUB_OUTPUT
+          else
+            echo "environment=dev" >> $GITHUB_OUTPUT
+            echo "image_tag=dev-$(date +%Y%m%d-%H%M%S)" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: '${{ secrets.GCP_SA_KEY }}'
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Configure Docker
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
+
+      - name: Build and Push
+        run: |
+          IMAGE="${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GCP_REPO_NAME }}/${{ secrets.GCP_SERVICE_NAME }}:${{ steps.env.outputs.image_tag }}"
+          docker build -t $IMAGE -f Dockerfile .
+          docker push $IMAGE
+          echo "IMAGE=$IMAGE" >> $GITHUB_ENV
+
+      - name: Deploy to Cloud Run (DEV)
+        if: steps.env.outputs.environment == 'dev'
+        run: |
+          gcloud run deploy ${{ secrets.GCP_SERVICE_NAME }}-dev \
+            --image ${{ env.IMAGE }} \
+            --region ${{ env.REGION }} \
+            --platform managed \
+            --allow-unauthenticated \
+            --memory 256Mi \
+            --cpu 1 \
+            --max-instances 2 \
+            --set-env-vars "ARX_CODEX_URL=${{ secrets.ARX_CODEX_URL }}" \
+            --set-env-vars "ARX_CODEX_PROJECT_ID=${{ secrets.GCP_SERVICE_NAME }}-dev" \
+            --set-secrets "ARX_CODEX_SECRET_KEY=arx-codex-secret:latest"
+
+      - name: Deploy to Cloud Run (PROD)
+        if: steps.env.outputs.environment == 'prod'
+        run: |
+          gcloud run deploy ${{ secrets.GCP_SERVICE_NAME }} \
+            --image ${{ env.IMAGE }} \
+            --region ${{ env.REGION }} \
+            --platform managed \
+            --allow-unauthenticated \
+            --memory 512Mi \
+            --cpu 1 \
+            --max-instances 10 \
+            --set-env-vars "ARX_CODEX_URL=${{ secrets.ARX_CODEX_URL }}" \
+            --set-env-vars "ARX_CODEX_PROJECT_ID=${{ secrets.GCP_SERVICE_NAME }}" \
+            --set-secrets "ARX_CODEX_SECRET_KEY=arx-codex-secret:latest"
+
+      - name: Output URL
+        run: |
+          SERVICE_NAME="${{ secrets.GCP_SERVICE_NAME }}"
+          if [[ "${{ steps.env.outputs.environment }}" == "dev" ]]; then
+            SERVICE_NAME="${SERVICE_NAME}-dev"
+          fi
+          URL=$(gcloud run services describe $SERVICE_NAME --region ${{ env.REGION }} --format 'value(status.url)')
+          echo "Deployed to: $URL"

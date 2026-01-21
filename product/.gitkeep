@@ -1,0 +1,34 @@
+# ============================================
+# Product Directory
+# ============================================
+#
+# This is where YOUR PRODUCT lives.
+#
+# Your product can be built with ANY technology:
+#   - React + Vite
+#   - Next.js
+#   - Python + FastAPI
+#   - Go
+#   - Rust
+#   - Whatever you need
+#
+# The factory/ folder contains AI tools (Arx-SDK) to help you BUILD
+# this product. The product itself is technology-agnostic.
+#
+# Examples:
+#
+#   React app:
+#     cd product
+#     npm create vite@latest . -- --template react-ts
+#
+#   Python API:
+#     cd product
+#     mkdir src && touch src/__init__.py src/main.py
+#
+#   Next.js:
+#     cd product
+#     npx create-next-app@latest .
+#
+# The Dockerfile in the root will build and deploy whatever
+# is in this product/ directory.
+# ============================================

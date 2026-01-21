@@ -1,0 +1,17 @@
+# Test Data Directory
+#
+# This directory contains test fixtures and sample data for functional tests.
+# Unlike data/, this directory IS committed to the repository.
+#
+# Structure suggestion:
+#   data-test/
+#   ├── samples/           # Sample files for testing
+#   │   ├── documents/     # Sample documents for RAG testing
+#   │   ├── images/        # Sample images
+#   │   └── fixtures.json  # Test fixtures
+#   └── .gitkeep
+#
+# Usage in tests:
+#   from pathlib import Path
+#   TEST_DATA = Path(__file__).parent.parent / "data-test"
+#   sample_doc = TEST_DATA / "samples" / "documents" / "test.txt"

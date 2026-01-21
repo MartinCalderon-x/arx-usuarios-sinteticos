@@ -1,0 +1,24 @@
+# ============================================
+# Factory Dependencies - Arx-SDK
+# ============================================
+# These packages are installed from GitHub (private repo).
+# Each package installs its own dependencies:
+#   - arx-codex: supabase
+#   - arx-llm: langchain, anthropic, openai
+#   - arx-agents: (uses arx-llm, arx-codex)
+#   - arx-rag: chromadb, sentence-transformers
+#   - arx-intelligence: networkx
+# ============================================
+
+# === All Arx-SDK Packages ===
+arx-codex @ git+ssh://git@github.com/MartinCalderon-x/arx-sdk.git#subdirectory=packages/arx-codex
+arx-llm @ git+ssh://git@github.com/MartinCalderon-x/arx-sdk.git#subdirectory=packages/arx-llm
+arx-agents @ git+ssh://git@github.com/MartinCalderon-x/arx-sdk.git#subdirectory=packages/arx-agents
+arx-rag @ git+ssh://git@github.com/MartinCalderon-x/arx-sdk.git#subdirectory=packages/arx-rag
+arx-intelligence @ git+ssh://git@github.com/MartinCalderon-x/arx-sdk.git#subdirectory=packages/arx-intelligence
+
+# === Utilities ===
+python-dotenv>=1.0.0
+
+# === Development (optional) ===
+pytest>=7.0.0

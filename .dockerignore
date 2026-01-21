@@ -1,0 +1,48 @@
+# ============================================
+# Docker Ignore
+# ============================================
+# Only the product/ directory gets deployed.
+# Everything else is excluded from the Docker build.
+# ============================================
+
+# Git
+.git
+.gitignore
+
+# Factory (development tools - not deployed)
+factory/
+venv/
+.venv/
+
+# Environment files
+.env
+.env.local
+.env.example
+
+# Data directories
+data/
+data-test/
+
+# Tests
+tests/
+
+# Documentation
+*.md
+
+# IDE
+.vscode/
+.idea/
+
+# Python cache
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Node (if product is Node-based, these are rebuilt in Docker)
+product/node_modules/
+
+# OS
+.DS_Store
+
+# GitHub workflows
+.github/

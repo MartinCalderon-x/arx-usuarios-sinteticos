@@ -24,10 +24,10 @@ cd "$PROJECT_ROOT"
 echo -e "${BLUE}Project root: $PROJECT_ROOT${NC}"
 echo ""
 
-# 1. Create virtual environment for factory
+# 1. Create virtual environment for factory (Python 3.13)
 if [ ! -d "venv" ]; then
-    echo -e "${YELLOW}Creating virtual environment...${NC}"
-    python3 -m venv venv
+    echo -e "${YELLOW}Creating virtual environment with Python 3.13...${NC}"
+    python3.13 -m venv venv
     echo -e "${GREEN}Virtual environment created.${NC}"
 else
     echo "Virtual environment already exists."

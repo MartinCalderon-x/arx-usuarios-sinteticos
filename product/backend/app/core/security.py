@@ -15,24 +15,27 @@ def decode_supabase_jwt(token: str) -> Optional[dict]:
     """
     Decode and validate a Supabase JWT token.
 
-    Supabase JWTs are signed with the JWT secret from the project settings.
-    For public validation, we use the anon key's payload structure.
+    Supabase Auth JWTs have the following structure:
+    - iss: https://<project-ref>.supabase.co/auth/v1
+    - sub: user UUID
+    - aud: authenticated
+    - role: authenticated or anon
     """
     try:
-        # Supabase uses HS256 algorithm
-        # The JWT secret is derived from the project's JWT secret
-        # For validation without the secret, we can decode and verify structure
-
         # Decode without verification first to get claims
         unverified = jwt.decode(token, options={"verify_signature": False})
 
-        # Verify it's a Supabase token
-        if unverified.get("iss") != "supabase":
-            return None
+        # Verify it's a Supabase token by checking the issuer
+        iss = unverified.get("iss", "")
 
-        # Check if it's for our project
-        expected_ref = settings.supabase_url.replace("https://", "").replace(".supabase.co", "")
-        if unverified.get("ref") != expected_ref:
+        # Check if issuer contains our Supabase project URL
+        # Auth tokens have iss like: https://fbpvorxgxokflsyjhnnd.supabase.co/auth/v1
+        # Anon key tokens have iss: supabase
+        expected_host = settings.supabase_url.replace("https://", "")
+        is_auth_token = expected_host in iss
+        is_anon_token = iss == "supabase" and unverified.get("ref") == expected_host.replace(".supabase.co", "")
+
+        if not is_auth_token and not is_anon_token:
             return None
 
         # Check expiration

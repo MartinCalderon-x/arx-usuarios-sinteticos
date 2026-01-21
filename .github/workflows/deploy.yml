@@ -1,18 +1,21 @@
 # ============================================
-# Cloud Run Deployment
+# Usuarios Sintéticos - Cloud Run Deployment
 # ============================================
-# Deploys to Google Cloud Run on:
-# - Push to develop branch -> DEV environment
-# - Push of v* tags -> PROD environment
-# - Manual dispatch
+# Estrategia de Deploy:
+# - DEV: Automático en push a develop
+# - PROD: Manual via workflow_dispatch
 #
-# Required GitHub Secrets:
-# - GCP_PROJECT_ID: Your GCP project ID
-# - GCP_REPO_NAME: Artifact Registry repository name
-# - GCP_SERVICE_NAME: Cloud Run service name
-# - GCP_SA_KEY: Service account key (JSON)
-# - ARX_CODEX_URL: Arx-Codex Supabase URL
-# - ARX_CODEX_SECRET_KEY: Arx-Codex secret key
+# Los tags (v*) son solo para versionado, NO disparan deploy automático a PROD
+#
+# Secrets requeridos:
+# - GCP_PROJECT_ID
+# - GCP_REPO_NAME
+# - GCP_SERVICE_NAME
+# - GCP_SA_KEY
+# - GOOGLE_API_KEY
+# - SUPABASE_URL
+# - SUPABASE_ANON_KEY
+# - SUPABASE_SERVICE_ROLE_KEY
 # ============================================
 
 name: Deploy to Cloud Run
@@ -20,7 +23,6 @@ name: Deploy to Cloud Run
 on:
   push:
     branches: [develop]
-    tags: ['v*']
   workflow_dispatch:
     inputs:
       environment:
@@ -46,15 +48,18 @@ jobs:
       - name: Set environment
         id: env
         run: |
-          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+          if [[ "${{ github.event.inputs.environment }}" == "prod" ]]; then
             echo "environment=prod" >> $GITHUB_OUTPUT
-            echo "image_tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.event.inputs.environment }}" == "prod" ]]; then
-            echo "environment=prod" >> $GITHUB_OUTPUT
-            echo "image_tag=manual-$(date +%Y%m%d-%H%M%S)" >> $GITHUB_OUTPUT
+            # Use latest tag if exists, otherwise use commit SHA
+            LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+            if [[ -n "$LATEST_TAG" ]]; then
+              echo "image_tag=${LATEST_TAG}" >> $GITHUB_OUTPUT
+            else
+              echo "image_tag=prod-$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
+            fi
           else
             echo "environment=dev" >> $GITHUB_OUTPUT
-            echo "image_tag=dev-$(date +%Y%m%d-%H%M%S)" >> $GITHUB_OUTPUT
+            echo "image_tag=dev-$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
           fi
 
       - name: Authenticate to Google Cloud
@@ -85,12 +90,18 @@ jobs:
             --region ${{ env.REGION }} \
             --platform managed \
             --allow-unauthenticated \
-            --memory 256Mi \
+            --memory 512Mi \
             --cpu 1 \
-            --max-instances 2 \
-            --set-env-vars "ARX_CODEX_URL=${{ secrets.ARX_CODEX_URL }}" \
-            --set-env-vars "ARX_CODEX_PROJECT_ID=${{ secrets.GCP_SERVICE_NAME }}-dev" \
-            --set-secrets "ARX_CODEX_SECRET_KEY=arx-codex-secret:latest"
+            --max-instances 3 \
+            --set-env-vars "GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }}" \
+            --set-env-vars "GEMINI_MODEL=gemini-2.0-flash" \
+            --set-env-vars "GEMINI_VISION_MODEL=gemini-2.0-flash" \
+            --set-env-vars "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" \
+            --set-env-vars "SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}" \
+            --set-env-vars "SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
+            --set-env-vars "API_HOST=0.0.0.0" \
+            --set-env-vars "API_PORT=8080" \
+            --set-env-vars "CORS_ORIGINS=*"
 
       - name: Deploy to Cloud Run (PROD)
         if: steps.env.outputs.environment == 'prod'
@@ -100,12 +111,19 @@ jobs:
             --region ${{ env.REGION }} \
             --platform managed \
             --allow-unauthenticated \
-            --memory 512Mi \
-            --cpu 1 \
+            --memory 1Gi \
+            --cpu 2 \
+            --min-instances 1 \
             --max-instances 10 \
-            --set-env-vars "ARX_CODEX_URL=${{ secrets.ARX_CODEX_URL }}" \
-            --set-env-vars "ARX_CODEX_PROJECT_ID=${{ secrets.GCP_SERVICE_NAME }}" \
-            --set-secrets "ARX_CODEX_SECRET_KEY=arx-codex-secret:latest"
+            --set-env-vars "GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }}" \
+            --set-env-vars "GEMINI_MODEL=gemini-2.0-flash" \
+            --set-env-vars "GEMINI_VISION_MODEL=gemini-2.0-flash" \
+            --set-env-vars "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" \
+            --set-env-vars "SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}" \
+            --set-env-vars "SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
+            --set-env-vars "API_HOST=0.0.0.0" \
+            --set-env-vars "API_PORT=8080" \
+            --set-env-vars "CORS_ORIGINS=*"
 
       - name: Output URL
         run: |
@@ -114,4 +132,8 @@ jobs:
             SERVICE_NAME="${SERVICE_NAME}-dev"
           fi
           URL=$(gcloud run services describe $SERVICE_NAME --region ${{ env.REGION }} --format 'value(status.url)')
-          echo "Deployed to: $URL"
+          echo "## Deployment Complete! :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ steps.env.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Image Tag:** ${{ steps.env.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "**URL:** $URL" >> $GITHUB_STEP_SUMMARY

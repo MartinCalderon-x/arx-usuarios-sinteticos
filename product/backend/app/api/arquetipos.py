@@ -1,7 +1,9 @@
 """Arquetipos (Synthetic Users) API routes."""
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from typing import Optional
 from pydantic import BaseModel
+
+from app.core.security import get_current_user, require_auth
 
 router = APIRouter()
 
@@ -35,36 +37,36 @@ class ArquetipoResponse(BaseModel):
 
 
 @router.get("/")
-async def list_arquetipos():
-    """List all archetypes."""
+async def list_arquetipos(user: dict = Depends(require_auth)):
+    """List all archetypes. Requires authentication."""
     # TODO: Implement with Supabase
     return {"arquetipos": [], "total": 0}
 
 
 @router.post("/", response_model=ArquetipoResponse)
-async def create_arquetipo(arquetipo: ArquetipoCreate):
-    """Create a new archetype."""
+async def create_arquetipo(arquetipo: ArquetipoCreate, user: dict = Depends(require_auth)):
+    """Create a new archetype. Requires authentication."""
     # TODO: Implement with Supabase
     raise HTTPException(status_code=501, detail="Not implemented")
 
 
 @router.get("/{arquetipo_id}", response_model=ArquetipoResponse)
-async def get_arquetipo(arquetipo_id: str):
-    """Get an archetype by ID."""
+async def get_arquetipo(arquetipo_id: str, user: dict = Depends(require_auth)):
+    """Get an archetype by ID. Requires authentication."""
     # TODO: Implement with Supabase
     raise HTTPException(status_code=404, detail="Archetype not found")
 
 
 @router.put("/{arquetipo_id}", response_model=ArquetipoResponse)
-async def update_arquetipo(arquetipo_id: str, arquetipo: ArquetipoCreate):
-    """Update an archetype."""
+async def update_arquetipo(arquetipo_id: str, arquetipo: ArquetipoCreate, user: dict = Depends(require_auth)):
+    """Update an archetype. Requires authentication."""
     # TODO: Implement with Supabase
     raise HTTPException(status_code=501, detail="Not implemented")
 
 
 @router.delete("/{arquetipo_id}")
-async def delete_arquetipo(arquetipo_id: str):
-    """Delete an archetype."""
+async def delete_arquetipo(arquetipo_id: str, user: dict = Depends(require_auth)):
+    """Delete an archetype. Requires authentication."""
     # TODO: Implement with Supabase
     raise HTTPException(status_code=501, detail="Not implemented")
 

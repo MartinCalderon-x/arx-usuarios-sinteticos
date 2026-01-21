@@ -1,7 +1,9 @@
 """Synthetic User Interaction API routes."""
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from typing import Optional
 from pydantic import BaseModel
+
+from app.core.security import require_auth
 
 router = APIRouter()
 
@@ -40,28 +42,28 @@ class EvaluacionResponse(BaseModel):
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat_con_usuario(message: ChatMessage):
-    """Chat with a synthetic user."""
+async def chat_con_usuario(message: ChatMessage, user: dict = Depends(require_auth)):
+    """Chat with a synthetic user. Requires authentication."""
     # TODO: Implement with Gemini LLM
     raise HTTPException(status_code=501, detail="Not implemented")
 
 
 @router.post("/evaluar", response_model=EvaluacionResponse)
-async def evaluar_prototipo(request: EvaluacionRequest):
-    """Evaluate a prototype with a synthetic user."""
+async def evaluar_prototipo(request: EvaluacionRequest, user: dict = Depends(require_auth)):
+    """Evaluate a prototype with a synthetic user. Requires authentication."""
     # TODO: Implement with Gemini Vision + LLM
     raise HTTPException(status_code=501, detail="Not implemented")
 
 
 @router.get("/historial/{session_id}")
-async def get_historial(session_id: str):
-    """Get conversation history for a session."""
+async def get_historial(session_id: str, user: dict = Depends(require_auth)):
+    """Get conversation history for a session. Requires authentication."""
     # TODO: Implement with Supabase
     raise HTTPException(status_code=404, detail="Session not found")
 
 
 @router.get("/sesiones")
-async def list_sesiones(arquetipo_id: Optional[str] = None):
-    """List interaction sessions."""
+async def list_sesiones(arquetipo_id: Optional[str] = None, user: dict = Depends(require_auth)):
+    """List interaction sessions. Requires authentication."""
     # TODO: Implement with Supabase
     return {"sesiones": [], "total": 0}

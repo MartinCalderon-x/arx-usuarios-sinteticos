@@ -1,8 +1,10 @@
 """Reports API routes."""
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import FileResponse
 from typing import Optional
 from pydantic import BaseModel
+
+from app.core.security import require_auth
 
 router = APIRouter()
 
@@ -28,28 +30,28 @@ class ReporteResponse(BaseModel):
 
 
 @router.post("/generar", response_model=ReporteResponse)
-async def generar_reporte(request: ReporteRequest):
-    """Generate a report from analysis and interaction data."""
+async def generar_reporte(request: ReporteRequest, user: dict = Depends(require_auth)):
+    """Generate a report from analysis and interaction data. Requires authentication."""
     # TODO: Implement with ReportLab/python-pptx
     raise HTTPException(status_code=501, detail="Not implemented")
 
 
 @router.get("/{reporte_id}/descargar")
-async def descargar_reporte(reporte_id: str):
-    """Download a generated report."""
+async def descargar_reporte(reporte_id: str, user: dict = Depends(require_auth)):
+    """Download a generated report. Requires authentication."""
     # TODO: Implement with Supabase Storage
     raise HTTPException(status_code=404, detail="Report not found")
 
 
 @router.get("/")
-async def list_reportes():
-    """List generated reports."""
+async def list_reportes(user: dict = Depends(require_auth)):
+    """List generated reports. Requires authentication."""
     # TODO: Implement with Supabase
     return {"reportes": [], "total": 0}
 
 
 @router.delete("/{reporte_id}")
-async def delete_reporte(reporte_id: str):
-    """Delete a report."""
+async def delete_reporte(reporte_id: str, user: dict = Depends(require_auth)):
+    """Delete a report. Requires authentication."""
     # TODO: Implement with Supabase
     raise HTTPException(status_code=501, detail="Not implemented")

@@ -11,6 +11,9 @@ supabase>=2.3.0
 # AI/ML
 google-generativeai>=0.4.0
 
+# Security
+PyJWT>=2.8.0
+
 # Utilities
 python-dotenv>=1.0.0
 pydantic>=2.5.0

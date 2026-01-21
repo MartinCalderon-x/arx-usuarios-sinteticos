@@ -11,15 +11,18 @@ app = FastAPI(
     title="Usuarios Sintéticos API",
     description="API para análisis visual y simulación de usuarios sintéticos",
     version="0.1.0",
+    docs_url="/docs" if settings.cors_origins == "*" else None,  # Disable docs in prod
+    redoc_url=None,
 )
 
-# CORS middleware
+# CORS middleware - Strict configuration
+# Only allows requests from configured origins (frontend + Supabase)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
 )
 
 # Include routers

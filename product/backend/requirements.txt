@@ -1,0 +1,27 @@
+# Backend Dependencies - Usuarios Sintéticos
+
+# Web Framework
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.6
+
+# Database & Storage
+supabase>=2.3.0
+
+# AI/ML
+google-generativeai>=0.4.0
+
+# Utilities
+python-dotenv>=1.0.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+httpx>=0.26.0
+Pillow>=10.2.0
+
+# PDF/PPT Generation (for reports)
+reportlab>=4.0.0
+python-pptx>=0.6.21
+
+# Development
+pytest>=7.0.0
+pytest-asyncio>=0.23.0

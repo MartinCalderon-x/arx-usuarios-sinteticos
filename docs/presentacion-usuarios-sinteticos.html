@@ -1,0 +1,840 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Usuarios Sinteticos - Plan de Producto</title>
+    <style>
+        :root {
+            --primary: #00D4AA;
+            --primary-dark: #00B894;
+            --secondary: #0D1B2A;
+            --accent: #1B3A4B;
+            --text: #E0E0E0;
+            --text-muted: #A0A0A0;
+            --bg: #0A1628;
+            --card-bg: #12243B;
+            --border: #1E3A5F;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        /* Navigation */
+        nav {
+            position: fixed;
+            top: 0;
+            width: 100%;
+            background: rgba(10, 22, 40, 0.95);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--border);
+            z-index: 1000;
+            padding: 1rem 2rem;
+        }
+
+        nav ul {
+            display: flex;
+            justify-content: center;
+            gap: 2rem;
+            list-style: none;
+        }
+
+        nav a {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 0.9rem;
+            transition: color 0.3s;
+        }
+
+        nav a:hover, nav a.active {
+            color: var(--primary);
+        }
+
+        /* Sections */
+        section {
+            min-height: 100vh;
+            padding: 6rem 2rem 4rem;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        /* Hero */
+        .hero {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            min-height: 100vh;
+            position: relative;
+        }
+
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: radial-gradient(ellipse at center, rgba(0, 212, 170, 0.1) 0%, transparent 70%);
+            pointer-events: none;
+        }
+
+        .hero h1 {
+            font-size: 4rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--primary), #00E5FF);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 1.5rem;
+        }
+
+        .hero p {
+            font-size: 1.4rem;
+            color: var(--text-muted);
+            max-width: 700px;
+            margin-bottom: 3rem;
+        }
+
+        .hero-stats {
+            display: flex;
+            gap: 4rem;
+            margin-top: 2rem;
+        }
+
+        .stat {
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 3rem;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .stat-label {
+            font-size: 0.9rem;
+            color: var(--text-muted);
+        }
+
+        /* Section Headers */
+        .section-header {
+            text-align: center;
+            margin-bottom: 4rem;
+        }
+
+        .section-header h2 {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+            color: var(--text);
+        }
+
+        .section-header p {
+            color: var(--text-muted);
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .tag {
+            display: inline-block;
+            background: rgba(0, 212, 170, 0.15);
+            color: var(--primary);
+            padding: 0.3rem 1rem;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            margin-bottom: 1rem;
+        }
+
+        /* Cards Grid */
+        .cards-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 2rem;
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 40px rgba(0, 212, 170, 0.1);
+        }
+
+        .card-icon {
+            width: 50px;
+            height: 50px;
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 1.5rem;
+            font-size: 1.5rem;
+        }
+
+        .card h3 {
+            font-size: 1.3rem;
+            margin-bottom: 0.8rem;
+            color: var(--text);
+        }
+
+        .card p {
+            color: var(--text-muted);
+            font-size: 0.95rem;
+        }
+
+        /* Architecture */
+        .architecture {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 3rem;
+            margin-top: 2rem;
+        }
+
+        .arch-diagram {
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+            align-items: center;
+        }
+
+        .arch-layer {
+            background: rgba(0, 212, 170, 0.05);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem 3rem;
+            width: 100%;
+            max-width: 800px;
+            text-align: center;
+        }
+
+        .arch-layer h4 {
+            color: var(--primary);
+            margin-bottom: 0.5rem;
+        }
+
+        .arch-services {
+            display: flex;
+            justify-content: center;
+            gap: 2rem;
+            flex-wrap: wrap;
+        }
+
+        .arch-service {
+            background: var(--accent);
+            padding: 1rem 1.5rem;
+            border-radius: 8px;
+            font-size: 0.9rem;
+        }
+
+        .arch-connector {
+            width: 2px;
+            height: 30px;
+            background: var(--primary);
+            position: relative;
+        }
+
+        .arch-connector::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            border-left: 6px solid transparent;
+            border-right: 6px solid transparent;
+            border-top: 8px solid var(--primary);
+        }
+
+        /* Tech Stack */
+        .tech-stack {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            justify-content: center;
+            margin-top: 2rem;
+        }
+
+        .tech-item {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            padding: 1rem 2rem;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            gap: 0.8rem;
+        }
+
+        .tech-item span {
+            font-size: 1.5rem;
+        }
+
+        /* Timeline */
+        .timeline {
+            position: relative;
+            padding-left: 2rem;
+        }
+
+        .timeline::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: linear-gradient(to bottom, var(--primary), transparent);
+        }
+
+        .timeline-item {
+            position: relative;
+            margin-bottom: 3rem;
+            padding-left: 2rem;
+        }
+
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            left: -2rem;
+            top: 0.5rem;
+            width: 12px;
+            height: 12px;
+            background: var(--primary);
+            border-radius: 50%;
+            transform: translateX(-50%);
+        }
+
+        .timeline-item h4 {
+            color: var(--primary);
+            font-size: 1.1rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .timeline-item ul {
+            list-style: none;
+            color: var(--text-muted);
+        }
+
+        .timeline-item li {
+            padding: 0.3rem 0;
+            padding-left: 1.5rem;
+            position: relative;
+        }
+
+        .timeline-item li::before {
+            content: '>';
+            position: absolute;
+            left: 0;
+            color: var(--primary);
+        }
+
+        /* Comparison Table */
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 2rem;
+        }
+
+        .comparison-table th,
+        .comparison-table td {
+            padding: 1rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .comparison-table th {
+            background: var(--accent);
+            color: var(--primary);
+        }
+
+        .comparison-table tr:hover {
+            background: rgba(0, 212, 170, 0.05);
+        }
+
+        .check {
+            color: var(--primary);
+        }
+
+        .cross {
+            color: #FF6B6B;
+        }
+
+        /* Features List */
+        .features-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1rem;
+        }
+
+        .feature-item {
+            display: flex;
+            align-items: center;
+            gap: 0.8rem;
+            padding: 1rem;
+            background: var(--card-bg);
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+
+        .feature-item::before {
+            content: '';
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background: var(--primary);
+            border-radius: 50%;
+        }
+
+        /* Footer */
+        footer {
+            text-align: center;
+            padding: 3rem;
+            border-top: 1px solid var(--border);
+            color: var(--text-muted);
+        }
+
+        /* Scroll Indicator */
+        .scroll-indicator {
+            position: absolute;
+            bottom: 2rem;
+            left: 50%;
+            transform: translateX(-50%);
+            animation: bounce 2s infinite;
+        }
+
+        @keyframes bounce {
+            0%, 20%, 50%, 80%, 100% { transform: translateX(-50%) translateY(0); }
+            40% { transform: translateX(-50%) translateY(-10px); }
+            60% { transform: translateX(-50%) translateY(-5px); }
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .hero h1 { font-size: 2.5rem; }
+            .hero-stats { flex-direction: column; gap: 2rem; }
+            nav ul { gap: 1rem; font-size: 0.8rem; }
+            section { padding: 5rem 1rem 3rem; }
+        }
+    </style>
+</head>
+<body>
+    <nav>
+        <ul>
+            <li><a href="#inicio" class="active">Inicio</a></li>
+            <li><a href="#que-son">Que Son</a></li>
+            <li><a href="#casos-uso">Casos de Uso</a></li>
+            <li><a href="#arquitectura">Arquitectura</a></li>
+            <li><a href="#funcionalidades">MVP</a></li>
+            <li><a href="#roadmap">Roadmap</a></li>
+        </ul>
+    </nav>
+
+    <section class="hero" id="inicio">
+        <span class="tag">Plan de Producto 2025</span>
+        <h1>Usuarios Sinteticos</h1>
+        <p>Plataforma de validacion con IA que simula comportamientos de usuarios reales para acelerar decisiones de diseno y producto</p>
+
+        <div class="hero-stats">
+            <div class="stat">
+                <div class="stat-value">5x</div>
+                <div class="stat-label">Mas rapido testear</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value">70%</div>
+                <div class="stat-label">Menos costos</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value">10K+</div>
+                <div class="stat-label">Simulaciones/dia</div>
+            </div>
+        </div>
+
+        <div class="scroll-indicator">
+            <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 5v14M5 12l7 7 7-7"/>
+            </svg>
+        </div>
+    </section>
+
+    <section id="que-son">
+        <div class="section-header">
+            <span class="tag">Fundamentos</span>
+            <h2>Que son los Usuarios Sinteticos?</h2>
+            <p>Representaciones digitales generadas con IA que simulan comportamientos, decisiones y emociones de usuarios reales</p>
+        </div>
+
+        <div class="cards-grid">
+            <div class="card">
+                <div class="card-icon">🎯</div>
+                <h3>Perfiles Simulados</h3>
+                <p>Creados a partir de datos historicos, patrones de conducta y modelos de IA generativa</p>
+            </div>
+            <div class="card">
+                <div class="card-icon">💬</div>
+                <h3>Interactivos</h3>
+                <p>Pueden "probar" prototipos, dar feedback estructurado y responder preguntas</p>
+            </div>
+            <div class="card">
+                <div class="card-icon">📈</div>
+                <h3>Escalables</h3>
+                <p>Genera cientos o miles de perfiles en minutos, sin costos logisticos</p>
+            </div>
+            <div class="card">
+                <div class="card-icon">🔄</div>
+                <h3>Adaptativos</h3>
+                <p>Evolucionan con nueva informacion, como clientes reales que aprenden</p>
+            </div>
+        </div>
+
+        <div style="margin-top: 4rem;">
+            <h3 style="text-align: center; margin-bottom: 2rem;">Diferencia con Personas Tradicionales</h3>
+            <table class="comparison-table">
+                <tr>
+                    <th>Aspecto</th>
+                    <th>Persona Tradicional</th>
+                    <th>Usuario Sintetico</th>
+                </tr>
+                <tr>
+                    <td>Formato</td>
+                    <td>Documento estatico</td>
+                    <td>Perfil dinamico e interactivo</td>
+                </tr>
+                <tr>
+                    <td>Responde preguntas</td>
+                    <td class="cross">No</td>
+                    <td class="check">Si, con contexto</td>
+                </tr>
+                <tr>
+                    <td>Evalua prototipos</td>
+                    <td class="cross">No</td>
+                    <td class="check">Si, con feedback</td>
+                </tr>
+                <tr>
+                    <td>Escalabilidad</td>
+                    <td>3-5 personas</td>
+                    <td>Miles de variaciones</td>
+                </tr>
+                <tr>
+                    <td>Actualizacion</td>
+                    <td>Manual</td>
+                    <td>Automatica con nuevos datos</td>
+                </tr>
+            </table>
+        </div>
+    </section>
+
+    <section id="casos-uso">
+        <div class="section-header">
+            <span class="tag">Aplicaciones</span>
+            <h2>4 Casos de Uso Principales</h2>
+            <p>Desde exploracion inicial hasta decisiones estrategicas</p>
+        </div>
+
+        <div class="cards-grid">
+            <div class="card">
+                <div class="card-icon">🔍</div>
+                <h3>1. Explorar Decisiones</h3>
+                <p>Entender como y por que los usuarios toman decisiones, sienten friccion o desconfian, antes de disenar</p>
+                <ul style="margin-top: 1rem; color: var(--text-muted); font-size: 0.9rem;">
+                    <li>Simulacion de entrevistas</li>
+                    <li>Reacciones a flujos</li>
+                    <li>Comprension de fricciones</li>
+                </ul>
+            </div>
+            <div class="card">
+                <div class="card-icon">✅</div>
+                <h3>2. Validar Soluciones</h3>
+                <p>Elegir que iniciativas y features tienen mas sentido antes de invertir fuerte en desarrollo</p>
+                <ul style="margin-top: 1rem; color: var(--text-muted); font-size: 0.9rem;">
+                    <li>Validacion de hipotesis</li>
+                    <li>Comparacion A/B conceptual</li>
+                    <li>Priorizacion de roadmap</li>
+                </ul>
+            </div>
+            <div class="card">
+                <div class="card-icon">💰</div>
+                <h3>3. Optimizar Negocio</h3>
+                <p>Evaluar reacciones a precios, modelos de servicio y experiencias criticas</p>
+                <ul style="margin-top: 1rem; color: var(--text-muted); font-size: 0.9rem;">
+                    <li>Sensibilidad a pricing</li>
+                    <li>Modelos de atencion</li>
+                    <li>Experiencias de alto riesgo</li>
+                </ul>
+            </div>
+            <div class="card">
+                <div class="card-icon">🔮</div>
+                <h3>4. Simular Escenarios</h3>
+                <p>Explorar escenarios "what if" antes de que ocurran para anticipar consecuencias</p>
+                <ul style="margin-top: 1rem; color: var(--text-muted); font-size: 0.9rem;">
+                    <li>Cambios de modelo</li>
+                    <li>Nuevas capacidades IA</li>
+                    <li>Expansion a segmentos</li>
+                </ul>
+            </div>
+        </div>
+    </section>
+
+    <section id="arquitectura">
+        <div class="section-header">
+            <span class="tag">Tecnologia</span>
+            <h2>Arquitectura del Sistema</h2>
+            <p>Stack moderno optimizado para escalabilidad y rendimiento</p>
+        </div>
+
+        <div class="architecture">
+            <div class="arch-diagram">
+                <div class="arch-layer">
+                    <h4>Frontend</h4>
+                    <p>Vite + React desplegado en Cloud Run</p>
+                    <div class="arch-services">
+                        <span class="arch-service">Dashboard</span>
+                        <span class="arch-service">Arquetipos</span>
+                        <span class="arch-service">Analisis Visual</span>
+                        <span class="arch-service">Reportes</span>
+                    </div>
+                </div>
+
+                <div class="arch-connector"></div>
+
+                <div class="arch-layer">
+                    <h4>Backend API</h4>
+                    <p>Python + FastAPI desplegado en Cloud Run</p>
+                    <div class="arch-services">
+                        <span class="arch-service">/api/arquetipos</span>
+                        <span class="arch-service">/api/analisis</span>
+                        <span class="arch-service">/api/interaccion</span>
+                        <span class="arch-service">/api/reportes</span>
+                    </div>
+                </div>
+
+                <div class="arch-connector"></div>
+
+                <div style="display: flex; gap: 1rem; flex-wrap: wrap; justify-content: center;">
+                    <div class="arch-layer" style="flex: 1; min-width: 200px;">
+                        <h4>Vision AI</h4>
+                        <div class="arch-services">
+                            <span class="arch-service">Gemini Vision</span>
+                            <span class="arch-service">Qwen 2.5 VL</span>
+                        </div>
+                    </div>
+                    <div class="arch-layer" style="flex: 1; min-width: 200px;">
+                        <h4>LLM</h4>
+                        <div class="arch-services">
+                            <span class="arch-service">Gemini Pro</span>
+                        </div>
+                    </div>
+                    <div class="arch-layer" style="flex: 1; min-width: 200px;">
+                        <h4>Database</h4>
+                        <div class="arch-services">
+                            <span class="arch-service">Supabase</span>
+                            <span class="arch-service">pgvector</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <h3 style="text-align: center; margin: 3rem 0 1.5rem;">Stack Tecnologico</h3>
+        <div class="tech-stack">
+            <div class="tech-item"><span>🐍</span> Python + FastAPI</div>
+            <div class="tech-item"><span>⚛️</span> Vite + React</div>
+            <div class="tech-item"><span>🗃️</span> Supabase + pgvector</div>
+            <div class="tech-item"><span>🧠</span> Gemini Vision/Pro</div>
+            <div class="tech-item"><span>👁️</span> Qwen 2.5 VL</div>
+            <div class="tech-item"><span>☁️</span> Cloud Run (GCP)</div>
+        </div>
+    </section>
+
+    <section id="funcionalidades">
+        <div class="section-header">
+            <span class="tag">MVP</span>
+            <h2>Funcionalidades del Producto</h2>
+            <p>Capacidades core para la primera version</p>
+        </div>
+
+        <div class="cards-grid" style="grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));">
+            <div class="card">
+                <div class="card-icon">👤</div>
+                <h3>Gestion de Arquetipos</h3>
+                <div class="features-list" style="margin-top: 1rem;">
+                    <div class="feature-item">Crear/editar perfiles sinteticos</div>
+                    <div class="feature-item">Templates predefinidos</div>
+                    <div class="feature-item">Variables configurables</div>
+                    <div class="feature-item">Arquetipos industriales</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-icon">🎨</div>
+                <h3>Analisis Visual con IA</h3>
+                <div class="features-list" style="margin-top: 1rem;">
+                    <div class="feature-item">Heatmaps de atencion</div>
+                    <div class="feature-item">Focus maps (primeros seg.)</div>
+                    <div class="feature-item">Areas de interes (AOI)</div>
+                    <div class="feature-item">Clarity Score</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-icon">💬</div>
+                <h3>Interaccion Simulada</h3>
+                <div class="features-list" style="margin-top: 1rem;">
+                    <div class="feature-item">Chat con arquetipos</div>
+                    <div class="feature-item">Evaluacion de prototipos</div>
+                    <div class="feature-item">Identificar fricciones</div>
+                    <div class="feature-item">Detectar objeciones</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-icon">📊</div>
+                <h3>Reportes y Exportacion</h3>
+                <div class="features-list" style="margin-top: 1rem;">
+                    <div class="feature-item">Dashboard de metricas</div>
+                    <div class="feature-item">Comparacion A/B</div>
+                    <div class="feature-item">Export PDF/PPT</div>
+                    <div class="feature-item">Historial de analisis</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="roadmap">
+        <div class="section-header">
+            <span class="tag">Implementacion</span>
+            <h2>Roadmap de Desarrollo</h2>
+            <p>Plan de implementacion por fases</p>
+        </div>
+
+        <div class="timeline">
+            <div class="timeline-item">
+                <h4>Fase 1: Setup e Infraestructura</h4>
+                <ul>
+                    <li>Inicializar monorepo (backend + frontend)</li>
+                    <li>Configurar FastAPI con estructura base</li>
+                    <li>Configurar Vite + React con routing</li>
+                    <li>Setup Supabase (DB + Auth + Storage)</li>
+                    <li>Configurar Cloud Run para despliegue</li>
+                </ul>
+            </div>
+
+            <div class="timeline-item">
+                <h4>Fase 2: Integracion Vision AI</h4>
+                <ul>
+                    <li>Configurar API de Gemini Vision</li>
+                    <li>Implementar placeholder para Qwen 2.5 VL</li>
+                    <li>Crear servicio de analisis de imagenes</li>
+                    <li>Implementar generacion de heatmaps</li>
+                    <li>Focus maps y AOI</li>
+                </ul>
+            </div>
+
+            <div class="timeline-item">
+                <h4>Fase 3: Sistema de Arquetipos</h4>
+                <ul>
+                    <li>Modelo de datos para usuarios sinteticos</li>
+                    <li>API CRUD completa</li>
+                    <li>Templates base (consumidor, operario, etc.)</li>
+                    <li>Embeddings con pgvector</li>
+                    <li>Busqueda semantica de arquetipos</li>
+                </ul>
+            </div>
+
+            <div class="timeline-item">
+                <h4>Fase 4: Interaccion con LLM</h4>
+                <ul>
+                    <li>Prompt engineering para simulacion</li>
+                    <li>Contextualizacion con arquetipos</li>
+                    <li>Evaluacion de prototipos</li>
+                    <li>Chat interactivo con usuarios sinteticos</li>
+                </ul>
+            </div>
+
+            <div class="timeline-item">
+                <h4>Fase 5: Expansion</h4>
+                <ul>
+                    <li>Navegacion de flujos multi-pantalla</li>
+                    <li>Integracion con Figma (plugin)</li>
+                    <li>Reportes avanzados y exportacion</li>
+                    <li>Dashboard de metricas consolidado</li>
+                </ul>
+            </div>
+        </div>
+    </section>
+
+    <footer>
+        <p>Usuarios Sinteticos - Plan de Producto 2025</p>
+        <p style="margin-top: 0.5rem; font-size: 0.85rem;">Powered by Gemini Vision + Supabase + FastAPI</p>
+    </footer>
+
+    <script>
+        // Smooth scroll for navigation
+        document.querySelectorAll('nav a').forEach(anchor => {
+            anchor.addEventListener('click', function(e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                target.scrollIntoView({ behavior: 'smooth' });
+            });
+        });
+
+        // Active nav link on scroll
+        const sections = document.querySelectorAll('section');
+        const navLinks = document.querySelectorAll('nav a');
+
+        window.addEventListener('scroll', () => {
+            let current = '';
+            sections.forEach(section => {
+                const sectionTop = section.offsetTop;
+                if (scrollY >= sectionTop - 200) {
+                    current = section.getAttribute('id');
+                }
+            });
+
+            navLinks.forEach(link => {
+                link.classList.remove('active');
+                if (link.getAttribute('href') === '#' + current) {
+                    link.classList.add('active');
+                }
+            });
+        });
+
+        // Animate cards on scroll
+        const observerOptions = {
+            threshold: 0.1,
+            rootMargin: '0px 0px -50px 0px'
+        };
+
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.style.opacity = '1';
+                    entry.target.style.transform = 'translateY(0)';
+                }
+            });
+        }, observerOptions);
+
+        document.querySelectorAll('.card, .arch-layer, .timeline-item').forEach(el => {
+            el.style.opacity = '0';
+            el.style.transform = 'translateY(20px)';
+            el.style.transition = 'opacity 0.6s ease, transform 0.6s ease';
+            observer.observe(el);
+        });
+    </script>
+</body>
+</html>

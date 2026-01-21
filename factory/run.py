@@ -14,7 +14,7 @@ load_dotenv()
 def main():
     """Factory configuration check."""
     print("=" * 50)
-    print("  Product Factory - Arx-SDK Tools")
+    print("  Usuarios Sintéticos - Factory Tools")
     print("=" * 50)
     print()
 
@@ -22,15 +22,15 @@ def main():
     print("Configuration status:")
     print()
 
-    # LLM
+    # Factory LLM (Arx-SDK)
     if os.getenv("ANTHROPIC_API_KEY"):
-        print("  [OK] Anthropic API key configured")
+        print("  [OK] Anthropic API key configured (Factory)")
     elif os.getenv("OPENAI_API_KEY"):
-        print("  [OK] OpenAI API key configured")
+        print("  [OK] OpenAI API key configured (Factory)")
     elif os.getenv("LLM_PROVIDER") == "ollama":
-        print("  [OK] Ollama configured (local)")
+        print("  [OK] Ollama configured (Factory, local)")
     else:
-        print("  [!!] No LLM configured - set ANTHROPIC_API_KEY, OPENAI_API_KEY, or LLM_PROVIDER=ollama")
+        print("  [--] Factory LLM not configured (optional)")
 
     # Arx-Codex
     if os.getenv("ARX_CODEX_URL") and os.getenv("ARX_CODEX_SECRET_KEY"):
@@ -41,6 +41,31 @@ def main():
     # ChromaDB
     chroma_dir = os.getenv("CHROMA_PERSIST_DIR", "./data/vectordb")
     print(f"  [OK] ChromaDB will persist to: {chroma_dir}")
+
+    print()
+    print("-" * 50)
+    print("  Product Configuration (Usuarios Sintéticos)")
+    print("-" * 50)
+    print()
+
+    # Gemini (Primary AI for product)
+    if os.getenv("GOOGLE_API_KEY"):
+        model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+        print(f"  [OK] Gemini API configured (model: {model})")
+    else:
+        print("  [!!] Gemini not configured - set GOOGLE_API_KEY")
+
+    # Qwen (Alternative Vision)
+    if os.getenv("QWEN_API_KEY"):
+        print("  [OK] Qwen 2.5 VL configured (alternative vision)")
+    else:
+        print("  [--] Qwen 2.5 VL not configured (placeholder)")
+
+    # Supabase
+    if os.getenv("SUPABASE_URL") and os.getenv("SUPABASE_SERVICE_ROLE_KEY"):
+        print("  [OK] Supabase configured (database + auth)")
+    else:
+        print("  [!!] Supabase not configured - set SUPABASE_URL and keys")
 
     print()
     print("=" * 50)

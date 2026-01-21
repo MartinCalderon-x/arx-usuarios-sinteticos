@@ -1,6 +1,8 @@
 """FastAPI application entry point."""
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+import traceback
 
 from app.core.config import get_settings
 from app.api import arquetipos, analisis, interaccion, reportes
@@ -15,8 +17,8 @@ app = FastAPI(
     redoc_url=None,
 )
 
-# CORS middleware - Strict configuration
-# Only allows requests from configured origins (frontend + Supabase)
+# CORS middleware - Must be added FIRST
+# This ensures CORS headers are added even on error responses
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
@@ -24,6 +26,20 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
 )
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """
+    Global exception handler to ensure all errors return proper JSON
+    and CORS headers are applied by the middleware.
+    """
+    print(f"Unhandled exception: {exc}")
+    print(traceback.format_exc())
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Error interno del servidor"}
+    )
 
 # Include routers
 app.include_router(arquetipos.router, prefix="/api/arquetipos", tags=["arquetipos"])

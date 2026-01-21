@@ -47,55 +47,8 @@ def get_user_id(user: dict) -> str:
     return user.get("sub")
 
 
-@router.get("/")
-async def list_arquetipos(user: dict = Depends(require_auth)):
-    """List all archetypes. Requires authentication."""
-    user_id = get_user_id(user)
-    arquetipos, total = await supabase.list_arquetipos(user_id)
-    return {"arquetipos": arquetipos, "total": total}
-
-
-@router.post("/", response_model=ArquetipoResponse)
-async def create_arquetipo(arquetipo: ArquetipoCreate, user: dict = Depends(require_auth)):
-    """Create a new archetype. Requires authentication."""
-    user_id = get_user_id(user)
-    data = arquetipo.model_dump(exclude_none=True)
-    result = await supabase.create_arquetipo(data, user_id)
-    if not result:
-        raise HTTPException(status_code=500, detail="Error al crear arquetipo")
-    return result
-
-
-@router.get("/{arquetipo_id}", response_model=ArquetipoResponse)
-async def get_arquetipo(arquetipo_id: str, user: dict = Depends(require_auth)):
-    """Get an archetype by ID. Requires authentication."""
-    user_id = get_user_id(user)
-    result = await supabase.get_arquetipo(arquetipo_id, user_id)
-    if not result:
-        raise HTTPException(status_code=404, detail="Arquetipo no encontrado")
-    return result
-
-
-@router.put("/{arquetipo_id}", response_model=ArquetipoResponse)
-async def update_arquetipo(arquetipo_id: str, arquetipo: ArquetipoCreate, user: dict = Depends(require_auth)):
-    """Update an archetype. Requires authentication."""
-    user_id = get_user_id(user)
-    data = arquetipo.model_dump(exclude_none=True)
-    result = await supabase.update_arquetipo(arquetipo_id, data, user_id)
-    if not result:
-        raise HTTPException(status_code=404, detail="Arquetipo no encontrado")
-    return result
-
-
-@router.delete("/{arquetipo_id}")
-async def delete_arquetipo(arquetipo_id: str, user: dict = Depends(require_auth)):
-    """Delete an archetype. Requires authentication."""
-    user_id = get_user_id(user)
-    deleted = await supabase.delete_arquetipo(arquetipo_id, user_id)
-    if not deleted:
-        raise HTTPException(status_code=404, detail="Arquetipo no encontrado")
-    return {"message": "Arquetipo eliminado"}
-
+# IMPORTANT: Static routes must be defined BEFORE dynamic routes
+# Otherwise /templates/ would be captured by /{arquetipo_id}
 
 @router.get("/templates/")
 async def list_templates():
@@ -303,3 +256,53 @@ async def list_templates():
         },
     ]
     return {"templates": templates}
+
+
+@router.get("/")
+async def list_arquetipos(user: dict = Depends(require_auth)):
+    """List all archetypes. Requires authentication."""
+    user_id = get_user_id(user)
+    arquetipos, total = await supabase.list_arquetipos(user_id)
+    return {"arquetipos": arquetipos, "total": total}
+
+
+@router.post("/", response_model=ArquetipoResponse)
+async def create_arquetipo(arquetipo: ArquetipoCreate, user: dict = Depends(require_auth)):
+    """Create a new archetype. Requires authentication."""
+    user_id = get_user_id(user)
+    data = arquetipo.model_dump(exclude_none=True)
+    result = await supabase.create_arquetipo(data, user_id)
+    if not result:
+        raise HTTPException(status_code=500, detail="Error al crear arquetipo")
+    return result
+
+
+@router.get("/{arquetipo_id}", response_model=ArquetipoResponse)
+async def get_arquetipo(arquetipo_id: str, user: dict = Depends(require_auth)):
+    """Get an archetype by ID. Requires authentication."""
+    user_id = get_user_id(user)
+    result = await supabase.get_arquetipo(arquetipo_id, user_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Arquetipo no encontrado")
+    return result
+
+
+@router.put("/{arquetipo_id}", response_model=ArquetipoResponse)
+async def update_arquetipo(arquetipo_id: str, arquetipo: ArquetipoCreate, user: dict = Depends(require_auth)):
+    """Update an archetype. Requires authentication."""
+    user_id = get_user_id(user)
+    data = arquetipo.model_dump(exclude_none=True)
+    result = await supabase.update_arquetipo(arquetipo_id, data, user_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Arquetipo no encontrado")
+    return result
+
+
+@router.delete("/{arquetipo_id}")
+async def delete_arquetipo(arquetipo_id: str, user: dict = Depends(require_auth)):
+    """Delete an archetype. Requires authentication."""
+    user_id = get_user_id(user)
+    deleted = await supabase.delete_arquetipo(arquetipo_id, user_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Arquetipo no encontrado")
+    return {"message": "Arquetipo eliminado"}

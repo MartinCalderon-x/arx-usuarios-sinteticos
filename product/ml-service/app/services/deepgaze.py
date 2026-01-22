@@ -416,3 +416,182 @@ class DeepGazeService:
             region["orden_visual"] = i + 1
 
         return regions
+
+    def generate_gaze_plot(
+        self,
+        heatmap: np.ndarray,
+        num_fixations: int = 10,
+        ior_sigma_factor: float = 0.05,
+        min_fixation_distance: int = 20,
+    ) -> list[dict]:
+        """Generate Gaze Plot (sequence of fixations) using Winner-Take-All + IoR.
+
+        This simulates human visual attention by:
+        1. Finding the point of maximum saliency (Winner-Take-All)
+        2. Recording it as a fixation
+        3. Applying Inhibition of Return (suppressing that area)
+        4. Repeating to get the next fixation
+
+        This produces a realistic sequence of where the eye would look.
+
+        Args:
+            heatmap: Saliency map of shape (H, W) with values in [0, 1].
+            num_fixations: Maximum number of fixations to generate.
+            ior_sigma_factor: IoR gaussian sigma as fraction of image size.
+            min_fixation_distance: Minimum distance between fixations in pixels.
+
+        Returns:
+            List of fixation dicts with:
+                - x: X position (0-100 relative)
+                - y: Y position (0-100 relative)
+                - order: Fixation order (1, 2, 3, ...)
+                - intensity: Saliency value at fixation point
+                - duration_estimate: Estimated fixation duration (ms)
+
+        Example:
+            >>> heatmap, _ = await service.predict(image_bytes)
+            >>> fixations = service.generate_gaze_plot(heatmap, num_fixations=8)
+            >>> for f in fixations:
+            ...     print(f"Fixation {f['order']}: ({f['x']}, {f['y']})")
+
+        References:
+            - Koch, C. & Ullman, S. (1985). Shifts in selective visual attention.
+            - Itti, L. & Koch, C. (2000). A saliency-based search mechanism.
+        """
+        h, w = heatmap.shape
+        ior_sigma = min(h, w) * ior_sigma_factor
+
+        # Work on a copy to apply IoR
+        current_map = heatmap.copy().astype(np.float64)
+        fixations = []
+
+        # Pre-compute coordinate grids for IoR
+        y_grid, x_grid = np.ogrid[:h, :w]
+
+        for i in range(num_fixations):
+            # Check if there's enough saliency left
+            if current_map.max() < 0.01:
+                logger.debug(f"Stopping gaze plot at fixation {i+1}: low saliency")
+                break
+
+            # Winner-Take-All: find maximum saliency point
+            max_idx = current_map.argmax()
+            y_fix, x_fix = np.unravel_index(max_idx, current_map.shape)
+
+            # Check minimum distance from previous fixations
+            too_close = False
+            for prev in fixations:
+                prev_x = int(prev["x"] * w / 100)
+                prev_y = int(prev["y"] * h / 100)
+                dist = np.sqrt((x_fix - prev_x)**2 + (y_fix - prev_y)**2)
+                if dist < min_fixation_distance:
+                    too_close = True
+                    break
+
+            if too_close:
+                # Apply strong IoR and try again
+                current_map[y_fix, x_fix] = 0
+                continue
+
+            # Record fixation
+            intensity = float(heatmap[y_fix, x_fix])
+
+            # Estimate fixation duration based on intensity and order
+            # First fixations tend to be longer, high-intensity areas get more time
+            base_duration = 200  # ms
+            intensity_factor = 1.0 + intensity * 0.5
+            order_decay = 1.0 / (1 + 0.1 * i)
+            duration_estimate = int(base_duration * intensity_factor * order_decay)
+
+            fixations.append({
+                "x": round(x_fix / w * 100, 1),
+                "y": round(y_fix / h * 100, 1),
+                "order": i + 1,
+                "intensity": round(intensity * 100, 1),
+                "duration_estimate": duration_estimate,
+                "pixel_x": int(x_fix),
+                "pixel_y": int(y_fix),
+            })
+
+            # Inhibition of Return: suppress area around fixation
+            # Using gaussian suppression centered on fixation point
+            ior_mask = np.exp(
+                -((x_grid - x_fix)**2 + (y_grid - y_fix)**2) / (2 * ior_sigma**2)
+            )
+            current_map = current_map * (1 - ior_mask * 0.95)
+
+        logger.info(f"Generated gaze plot with {len(fixations)} fixations")
+        return fixations
+
+    def generate_scanpath_image(
+        self,
+        heatmap: np.ndarray,
+        fixations: list[dict],
+        original_image: Optional[Image.Image] = None,
+        colormap: str = "jet",
+        alpha: float = 0.4,
+        circle_radius: int = 20,
+        line_width: int = 2,
+    ) -> Image.Image:
+        """Generate visualization of scanpath (gaze plot) on heatmap.
+
+        Creates an image showing:
+        - Heatmap overlay (optional, on original image)
+        - Numbered circles at each fixation point
+        - Lines connecting fixations in order (scanpath)
+
+        Args:
+            heatmap: Saliency map of shape (H, W).
+            fixations: List of fixation dicts from generate_gaze_plot().
+            original_image: If provided, overlay on this image.
+            colormap: Matplotlib colormap for heatmap.
+            alpha: Heatmap overlay transparency.
+            circle_radius: Radius of fixation circles.
+            line_width: Width of scanpath lines.
+
+        Returns:
+            PIL Image with scanpath visualization.
+        """
+        import cv2
+        from matplotlib import cm
+
+        h, w = heatmap.shape
+
+        # Generate heatmap image
+        heatmap_img = self.generate_heatmap_image(
+            heatmap, colormap=colormap, alpha=alpha, original_image=original_image
+        )
+
+        # Convert to numpy for drawing
+        img_array = np.array(heatmap_img.convert("RGB"))
+
+        # Draw scanpath lines
+        if len(fixations) > 1:
+            for i in range(len(fixations) - 1):
+                pt1 = (fixations[i]["pixel_x"], fixations[i]["pixel_y"])
+                pt2 = (fixations[i + 1]["pixel_x"], fixations[i + 1]["pixel_y"])
+                cv2.line(img_array, pt1, pt2, (255, 255, 255), line_width + 2)  # White outline
+                cv2.line(img_array, pt1, pt2, (50, 50, 200), line_width)  # Blue line
+
+        # Draw fixation circles with numbers
+        for fix in fixations:
+            x, y = fix["pixel_x"], fix["pixel_y"]
+            order = fix["order"]
+
+            # Circle size based on duration estimate
+            duration = fix.get("duration_estimate", 200)
+            radius = int(circle_radius * (0.8 + duration / 500))
+
+            # Draw circle
+            cv2.circle(img_array, (x, y), radius + 2, (0, 0, 0), -1)  # Black outline
+            cv2.circle(img_array, (x, y), radius, (255, 200, 50), -1)  # Yellow fill
+
+            # Draw number
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            text = str(order)
+            text_size = cv2.getTextSize(text, font, 0.6, 2)[0]
+            text_x = x - text_size[0] // 2
+            text_y = y + text_size[1] // 2
+            cv2.putText(img_array, text, (text_x, text_y), font, 0.6, (0, 0, 0), 2)
+
+        return Image.fromarray(img_array)

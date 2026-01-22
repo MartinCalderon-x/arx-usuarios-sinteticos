@@ -208,12 +208,14 @@ async def call_ml_service(image_data: bytes) -> Optional[dict]:
 async def generate_hybrid_result(
     image_data: bytes,
     gemini_result: dict,
+    use_v2: bool = True,
 ) -> dict:
     """Generate hybrid heatmap from Gemini AOI data.
 
     Args:
         image_data: Raw image bytes.
         gemini_result: Gemini Vision analysis result.
+        use_v2: If True, use hybrid v2 with Itti-Koch + face/text detection.
 
     Returns:
         Dict with heatmap and metadata.
@@ -228,9 +230,24 @@ async def generate_hybrid_result(
     aoi_data = gemini_result.get("areas_interes", [])
 
     # Generate hybrid heatmap
-    heatmap = hybrid_service.generate_from_aoi(
-        aoi_data, width, height, include_center_bias=True
-    )
+    if use_v2:
+        # v2: Full hybrid with Itti-Koch bottom-up + face/text detection
+        image_array = np.array(image)
+        heatmap, hybrid_metadata = hybrid_service.generate_hybrid(
+            image_array,
+            aoi_data,
+            include_center_bias=True,
+            include_bottom_up=True,
+            include_detectors=True,
+        )
+        model_name = "hybrid_v2_ittikoch"
+    else:
+        # v1: Legacy AOI-only mode
+        heatmap = hybrid_service.generate_from_aoi(
+            aoi_data, width, height, include_center_bias=True
+        )
+        hybrid_metadata = {"mode": "hybrid_v1"}
+        model_name = "hybrid_gemini_gaussian"
 
     # Generate heatmap images
     heatmap_base64 = hybrid_service.heatmap_to_base64(heatmap, colormap="jet")
@@ -259,6 +276,8 @@ async def generate_hybrid_result(
         "regions": regions,
         "inference_time_ms": round(inference_time, 2),
         "heatmap_array": heatmap,  # Keep for comparison
+        "model_name": model_name,
+        "hybrid_metadata": hybrid_metadata,
     }
 
 
@@ -331,7 +350,7 @@ async def comparar_modelos(
         heatmap_overlay_base64=hybrid_result["heatmap_overlay_base64"],
         regions=hybrid_result["regions"],
         inference_time_ms=hybrid_result["inference_time_ms"],
-        model_name="hybrid_gemini_gaussian",
+        model_name=hybrid_result.get("model_name", "hybrid_v2_ittikoch"),
     )
 
     total_time = (time.time() - total_start) * 1000

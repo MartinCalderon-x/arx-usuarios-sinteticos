@@ -8,25 +8,450 @@ The hybrid model offers a lightweight alternative to deep learning models
 like DeepGaze, trading some accuracy for significantly reduced latency
 and infrastructure requirements.
 
-Architecture:
-    1. Gemini Vision analyzes the image and identifies Areas of Interest (AOI)
-    2. Each AOI is converted to a weighted gaussian distribution
-    3. Gaussians are combined and normalized to produce the final heatmap
+Architecture v2 (Improved):
+    1. Itti-Koch Bottom-Up Saliency:
+       - Intensity channel (luminance)
+       - Color channels (R-G, B-Y opponent)
+       - Orientation channels (Gabor filters 0°, 45°, 90°, 135°)
+       - Center-surround operations for contrast detection
+    2. Top-Down Semantic Analysis:
+       - Gemini Vision identifies Areas of Interest (AOI)
+       - Each AOI is converted to a weighted gaussian distribution
+    3. Specialized Detectors:
+       - Face detection with evolutionary bias
+       - Text detection with cognitive priority
+    4. Fusion Layer:
+       - Weighted combination: α·bottom_up + β·top_down + γ·detectors
 
 References:
+    - Itti, Koch, Niebur (1998): A model of saliency-based visual attention
     - Gaussian mixture models for saliency: Itti & Koch (2001)
     - Center bias in fixations: Tatler (2007)
+    - Face detection bias: Cerf et al. (2009)
 """
 import io
 import base64
 import logging
 import time
-from typing import Optional
+from typing import Optional, Tuple, List
 
 import numpy as np
 from PIL import Image
 
+try:
+    import cv2
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
+
+try:
+    import pytesseract
+    TESSERACT_AVAILABLE = True
+except ImportError:
+    TESSERACT_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
+
+
+class IttiKochSaliency:
+    """Itti-Koch-Niebur (1998) bottom-up saliency model.
+
+    Implements the classic computational model of visual attention that
+    extracts low-level features and computes saliency through center-surround
+    operations.
+
+    Channels:
+        - Intensity: Luminance (grayscale)
+        - Color: R-G and B-Y opponent channels
+        - Orientation: Gabor filters at 0°, 45°, 90°, 135°
+
+    References:
+        Itti, L., Koch, C., & Niebur, E. (1998). A model of saliency-based
+        visual attention for rapid scene analysis. IEEE TPAMI.
+    """
+
+    def __init__(
+        self,
+        num_scales: int = 4,
+        gabor_ksize: int = 31,
+        gabor_sigma: float = 4.0,
+        gabor_lambda: float = 10.0,
+        gabor_gamma: float = 0.5,
+    ):
+        """Initialize Itti-Koch saliency extractor.
+
+        Args:
+            num_scales: Number of pyramid scales for center-surround.
+            gabor_ksize: Gabor kernel size.
+            gabor_sigma: Gabor sigma parameter.
+            gabor_lambda: Gabor wavelength.
+            gabor_gamma: Gabor aspect ratio.
+        """
+        self.num_scales = num_scales
+        self.gabor_ksize = gabor_ksize
+        self.gabor_sigma = gabor_sigma
+        self.gabor_lambda = gabor_lambda
+        self.gabor_gamma = gabor_gamma
+
+    def compute(self, image: np.ndarray) -> np.ndarray:
+        """Compute full Itti-Koch saliency map.
+
+        Args:
+            image: RGB image as numpy array (H, W, 3) with values in [0, 255].
+
+        Returns:
+            Saliency map normalized to [0, 1].
+        """
+        if not CV2_AVAILABLE:
+            logger.warning("OpenCV not available, returning zero saliency")
+            return np.zeros(image.shape[:2], dtype=np.float32)
+
+        # Ensure float32 and normalize to [0, 1]
+        img = image.astype(np.float32) / 255.0
+
+        # Extract channels
+        intensity_map = self._intensity_channel(img)
+        rg_map, by_map = self._color_channels(img)
+        orientation_maps = self._orientation_channels(img)
+
+        # Combine all feature maps
+        combined = intensity_map + rg_map + by_map
+        for o_map in orientation_maps:
+            combined += o_map
+
+        # Normalize to [0, 1]
+        combined = self._normalize(combined)
+
+        return combined
+
+    def _intensity_channel(self, img: np.ndarray) -> np.ndarray:
+        """Extract intensity (luminance) channel.
+
+        Args:
+            img: RGB image normalized to [0, 1].
+
+        Returns:
+            Intensity saliency map.
+        """
+        # Convert to grayscale using standard weights
+        gray = 0.299 * img[:, :, 0] + 0.587 * img[:, :, 1] + 0.114 * img[:, :, 2]
+        return self._center_surround(gray)
+
+    def _color_channels(self, img: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Extract color opponent channels (R-G and B-Y).
+
+        Args:
+            img: RGB image normalized to [0, 1].
+
+        Returns:
+            Tuple of (R-G saliency, B-Y saliency).
+        """
+        r, g, b = img[:, :, 0], img[:, :, 1], img[:, :, 2]
+        intensity = (r + g + b) / 3.0 + 1e-8
+
+        # Normalize colors by intensity (as in original paper)
+        r_norm = r / intensity
+        g_norm = g / intensity
+        b_norm = b / intensity
+
+        # Red-Green opponent
+        rg = np.abs(r_norm - g_norm)
+
+        # Blue-Yellow opponent
+        by = np.abs(b_norm - (r_norm + g_norm) / 2.0)
+
+        # Apply center-surround to each
+        rg_saliency = self._center_surround(rg)
+        by_saliency = self._center_surround(by)
+
+        return rg_saliency, by_saliency
+
+    def _orientation_channels(self, img: np.ndarray) -> List[np.ndarray]:
+        """Extract orientation channels using Gabor filters.
+
+        Args:
+            img: RGB image normalized to [0, 1].
+
+        Returns:
+            List of orientation saliency maps for 0°, 45°, 90°, 135°.
+        """
+        # Convert to grayscale
+        gray = cv2.cvtColor((img * 255).astype(np.uint8), cv2.COLOR_RGB2GRAY)
+        gray = gray.astype(np.float32) / 255.0
+
+        orientations = [0, 45, 90, 135]
+        orientation_maps = []
+
+        for theta_deg in orientations:
+            theta = np.deg2rad(theta_deg)
+            gabor_kernel = cv2.getGaborKernel(
+                ksize=(self.gabor_ksize, self.gabor_ksize),
+                sigma=self.gabor_sigma,
+                theta=theta,
+                lambd=self.gabor_lambda,
+                gamma=self.gabor_gamma,
+                psi=0,
+                ktype=cv2.CV_32F,
+            )
+            response = cv2.filter2D(gray, cv2.CV_32F, gabor_kernel)
+            response = np.abs(response)
+            orientation_maps.append(self._center_surround(response))
+
+        return orientation_maps
+
+    def _center_surround(self, feature_map: np.ndarray) -> np.ndarray:
+        """Compute center-surround contrast at multiple scales.
+
+        The center-surround operation detects local contrasts by comparing
+        fine (center) and coarse (surround) scale representations.
+
+        Args:
+            feature_map: Single channel feature map.
+
+        Returns:
+            Center-surround saliency map.
+        """
+        # Build Gaussian pyramid
+        pyramid = [feature_map]
+        current = feature_map
+        for _ in range(self.num_scales):
+            current = cv2.pyrDown(current)
+            pyramid.append(current)
+
+        # Compute center-surround differences
+        cs_maps = []
+        for c in range(2, min(5, len(pyramid))):  # Center scales
+            for delta in [3, 4]:  # Surround offset
+                s = c + delta
+                if s >= len(pyramid):
+                    continue
+
+                center = pyramid[c]
+                surround = pyramid[s]
+
+                # Resize surround to center size
+                surround_resized = cv2.resize(
+                    surround, (center.shape[1], center.shape[0]),
+                    interpolation=cv2.INTER_LINEAR
+                )
+
+                # Absolute difference
+                cs_map = np.abs(center - surround_resized)
+                cs_maps.append(cs_map)
+
+        if not cs_maps:
+            return self._normalize(feature_map)
+
+        # Resize all to original size and combine
+        result = np.zeros_like(feature_map)
+        for cs_map in cs_maps:
+            resized = cv2.resize(
+                cs_map, (feature_map.shape[1], feature_map.shape[0]),
+                interpolation=cv2.INTER_LINEAR
+            )
+            result += resized
+
+        return self._normalize(result)
+
+    def _normalize(self, feature_map: np.ndarray) -> np.ndarray:
+        """Normalize feature map to [0, 1] with N(.) operator.
+
+        Uses iterative normalization as described in Itti & Koch (2001).
+
+        Args:
+            feature_map: Input feature map.
+
+        Returns:
+            Normalized feature map in [0, 1].
+        """
+        if feature_map.max() == feature_map.min():
+            return np.zeros_like(feature_map)
+
+        # Standard min-max normalization
+        normalized = (feature_map - feature_map.min()) / (feature_map.max() - feature_map.min() + 1e-8)
+
+        # Apply N(.) operator: promote maps with few strong peaks
+        # by multiplying by (max - mean)^2
+        mean_val = normalized.mean()
+        max_val = normalized.max()
+        normalized *= (max_val - mean_val) ** 2
+
+        # Re-normalize to [0, 1]
+        if normalized.max() > 0:
+            normalized = normalized / normalized.max()
+
+        return normalized.astype(np.float32)
+
+
+class FaceTextDetector:
+    """Detector for faces and text regions with attention weights.
+
+    Human attention has evolutionary bias toward faces and cognitive
+    priority for text/symbols. This detector identifies these regions
+    and provides attention weight masks.
+
+    References:
+        - Cerf, M., et al. (2009). Faces and text attract gaze.
+        - Rayner, K. (1998). Eye movements in reading and information processing.
+    """
+
+    def __init__(
+        self,
+        face_weight: float = 1.8,
+        text_weight: float = 1.4,
+        face_scale_factor: float = 1.1,
+        face_min_neighbors: int = 5,
+    ):
+        """Initialize face and text detector.
+
+        Args:
+            face_weight: Attention multiplier for face regions.
+            text_weight: Attention multiplier for text regions.
+            face_scale_factor: Scale factor for face detection cascade.
+            face_min_neighbors: Minimum neighbors for face detection.
+        """
+        self.face_weight = face_weight
+        self.text_weight = text_weight
+        self.face_scale_factor = face_scale_factor
+        self.face_min_neighbors = face_min_neighbors
+
+        # Load face cascade classifier
+        self._face_cascade = None
+        if CV2_AVAILABLE:
+            try:
+                cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+                self._face_cascade = cv2.CascadeClassifier(cascade_path)
+            except Exception as e:
+                logger.warning(f"Failed to load face cascade: {e}")
+
+    def detect_faces(self, image: np.ndarray) -> List[dict]:
+        """Detect faces in image.
+
+        Args:
+            image: RGB image as numpy array.
+
+        Returns:
+            List of face regions with bounding boxes.
+        """
+        if not CV2_AVAILABLE or self._face_cascade is None:
+            return []
+
+        gray = cv2.cvtColor(image.astype(np.uint8), cv2.COLOR_RGB2GRAY)
+
+        faces = self._face_cascade.detectMultiScale(
+            gray,
+            scaleFactor=self.face_scale_factor,
+            minNeighbors=self.face_min_neighbors,
+            minSize=(30, 30),
+        )
+
+        return [
+            {"x": int(x), "y": int(y), "width": int(w), "height": int(h)}
+            for (x, y, w, h) in faces
+        ]
+
+    def detect_text(self, image: np.ndarray) -> List[dict]:
+        """Detect text regions in image using OCR.
+
+        Args:
+            image: RGB image as numpy array.
+
+        Returns:
+            List of text regions with bounding boxes.
+        """
+        if not TESSERACT_AVAILABLE:
+            logger.debug("Tesseract not available, skipping text detection")
+            return []
+
+        try:
+            # Get bounding boxes from Tesseract
+            data = pytesseract.image_to_data(
+                Image.fromarray(image.astype(np.uint8)),
+                output_type=pytesseract.Output.DICT,
+            )
+
+            text_regions = []
+            for i, conf in enumerate(data["conf"]):
+                # Filter low confidence and empty text
+                if int(conf) < 30 or not data["text"][i].strip():
+                    continue
+
+                x, y = data["left"][i], data["top"][i]
+                w, h = data["width"][i], data["height"][i]
+
+                if w > 5 and h > 5:  # Filter tiny boxes
+                    text_regions.append({
+                        "x": x, "y": y,
+                        "width": w, "height": h,
+                        "text": data["text"][i],
+                        "confidence": int(conf),
+                    })
+
+            return text_regions
+
+        except Exception as e:
+            logger.warning(f"Text detection failed: {e}")
+            return []
+
+    def generate_attention_mask(
+        self,
+        image: np.ndarray,
+        detect_faces: bool = True,
+        detect_text: bool = True,
+    ) -> np.ndarray:
+        """Generate attention weight mask for faces and text.
+
+        Args:
+            image: RGB image as numpy array.
+            detect_faces: Whether to detect and weight faces.
+            detect_text: Whether to detect and weight text.
+
+        Returns:
+            Attention multiplier mask (values >= 1.0).
+        """
+        height, width = image.shape[:2]
+        mask = np.ones((height, width), dtype=np.float32)
+
+        if detect_faces:
+            faces = self.detect_faces(image)
+            for face in faces:
+                x, y, w, h = face["x"], face["y"], face["width"], face["height"]
+                # Expand face region slightly (faces attract attention around them)
+                expand = int(min(w, h) * 0.2)
+                x1 = max(0, x - expand)
+                y1 = max(0, y - expand)
+                x2 = min(width, x + w + expand)
+                y2 = min(height, y + h + expand)
+
+                # Apply gaussian-weighted face attention
+                cy, cx = (y1 + y2) // 2, (x1 + x2) // 2
+                sigma = max(w, h) * 0.5
+                yy, xx = np.ogrid[:height, :width]
+                gaussian = np.exp(-((xx - cx) ** 2 + (yy - cy) ** 2) / (2 * sigma ** 2))
+                mask += gaussian * (self.face_weight - 1.0)
+
+            if faces:
+                logger.debug(f"Detected {len(faces)} face(s)")
+
+        if detect_text:
+            text_regions = self.detect_text(image)
+
+            # Group nearby text regions
+            for region in text_regions:
+                x, y, w, h = region["x"], region["y"], region["width"], region["height"]
+                x2, y2 = min(width, x + w), min(height, y + h)
+                x, y = max(0, x), max(0, y)
+
+                # Apply text attention
+                mask[y:y2, x:x2] = np.maximum(
+                    mask[y:y2, x:x2],
+                    self.text_weight
+                )
+
+            if text_regions:
+                logger.debug(f"Detected {len(text_regions)} text region(s)")
+
+        return mask
 
 
 class HybridHeatmapService:
@@ -36,21 +461,37 @@ class HybridHeatmapService:
     saliency models by leveraging Gemini's visual understanding capabilities
     combined with classical gaussian blending.
 
+    Version 2.0 adds:
+        - Itti-Koch bottom-up saliency (intensity, color, orientation)
+        - Face detection with evolutionary attention bias
+        - Text/OCR detection with cognitive priority
+        - Weighted fusion of bottom-up and top-down features
+
     Attributes:
         default_sigma_factor: Factor to compute sigma from AOI size.
         center_bias_strength: Strength of center prior (0-1).
         min_sigma: Minimum gaussian sigma in pixels.
+        bottom_up_weight: Weight for Itti-Koch saliency (0-1).
+        top_down_weight: Weight for Gemini AOI saliency (0-1).
 
     Example:
         >>> service = HybridHeatmapService()
+        >>> # V1: AOI-only mode (backward compatible)
         >>> heatmap = service.generate_from_aoi(aoi_data, width=1024, height=768)
+        >>> # V2: Full hybrid mode with image
+        >>> heatmap = service.generate_hybrid(image, aoi_data)
     """
 
     def __init__(
         self,
         default_sigma_factor: float = 0.5,
-        center_bias_strength: float = 0.2,
+        center_bias_strength: float = 0.15,
         min_sigma: int = 20,
+        bottom_up_weight: float = 0.35,
+        top_down_weight: float = 0.50,
+        detector_weight: float = 0.15,
+        enable_face_detection: bool = True,
+        enable_text_detection: bool = True,
     ):
         """Initialize hybrid heatmap service.
 
@@ -58,10 +499,199 @@ class HybridHeatmapService:
             default_sigma_factor: Multiplier for AOI size to get sigma.
             center_bias_strength: Weight of center gaussian prior (0-1).
             min_sigma: Minimum sigma value to prevent too sharp peaks.
+            bottom_up_weight: Weight for Itti-Koch bottom-up saliency (0-1).
+            top_down_weight: Weight for Gemini AOI top-down saliency (0-1).
+            detector_weight: Weight for face/text detectors (0-1).
+            enable_face_detection: Whether to detect faces.
+            enable_text_detection: Whether to detect text (requires Tesseract).
         """
         self.default_sigma_factor = default_sigma_factor
         self.center_bias_strength = center_bias_strength
         self.min_sigma = min_sigma
+
+        # Fusion weights (should sum to ~1.0 for balanced contribution)
+        self.bottom_up_weight = bottom_up_weight
+        self.top_down_weight = top_down_weight
+        self.detector_weight = detector_weight
+
+        # Feature extractors
+        self.enable_face_detection = enable_face_detection
+        self.enable_text_detection = enable_text_detection
+
+        # Initialize sub-components lazily
+        self._itti_koch: Optional[IttiKochSaliency] = None
+        self._face_text_detector: Optional[FaceTextDetector] = None
+
+    def _get_itti_koch(self) -> IttiKochSaliency:
+        """Get or create Itti-Koch saliency extractor."""
+        if self._itti_koch is None:
+            self._itti_koch = IttiKochSaliency()
+        return self._itti_koch
+
+    def _get_face_text_detector(self) -> FaceTextDetector:
+        """Get or create face/text detector."""
+        if self._face_text_detector is None:
+            self._face_text_detector = FaceTextDetector()
+        return self._face_text_detector
+
+    def generate_hybrid(
+        self,
+        image: np.ndarray,
+        aoi_data: list[dict],
+        include_center_bias: bool = True,
+        include_bottom_up: bool = True,
+        include_detectors: bool = True,
+    ) -> Tuple[np.ndarray, dict]:
+        """Generate heatmap using full hybrid model (v2).
+
+        Combines:
+            1. Itti-Koch bottom-up saliency (low-level features)
+            2. Gemini AOI top-down attention (semantic understanding)
+            3. Face/text detectors (specialized attention biases)
+            4. Center bias prior
+
+        Args:
+            image: RGB image as numpy array (H, W, 3).
+            aoi_data: List of AOI dicts from Gemini Vision.
+            include_center_bias: Whether to add center viewing bias.
+            include_bottom_up: Whether to compute Itti-Koch saliency.
+            include_detectors: Whether to run face/text detection.
+
+        Returns:
+            Tuple of (heatmap array, metadata dict).
+            heatmap: numpy array of shape (H, W) with values in [0, 1].
+            metadata: dict with timing and component information.
+
+        Example:
+            >>> image = np.array(Image.open("test.jpg"))
+            >>> aoi_data = gemini_service.analyze(image)
+            >>> heatmap, meta = service.generate_hybrid(image, aoi_data)
+        """
+        start_time = time.time()
+        height, width = image.shape[:2]
+
+        metadata = {
+            "mode": "hybrid_v2",
+            "components": [],
+            "weights": {
+                "bottom_up": self.bottom_up_weight,
+                "top_down": self.top_down_weight,
+                "detectors": self.detector_weight,
+            },
+        }
+
+        # Initialize components
+        combined = np.zeros((height, width), dtype=np.float32)
+
+        # 1. Bottom-up: Itti-Koch saliency
+        bottom_up_map = None
+        if include_bottom_up and self.bottom_up_weight > 0:
+            itti_start = time.time()
+            itti_koch = self._get_itti_koch()
+            bottom_up_map = itti_koch.compute(image)
+            metadata["components"].append("itti_koch")
+            metadata["itti_koch_ms"] = round((time.time() - itti_start) * 1000, 2)
+
+        # 2. Top-down: Gemini AOI gaussians
+        top_down_map = None
+        if aoi_data and self.top_down_weight > 0:
+            aoi_start = time.time()
+            top_down_map = self._generate_top_down_map(aoi_data, width, height)
+            metadata["components"].append("gemini_aoi")
+            metadata["aoi_count"] = len(aoi_data)
+            metadata["aoi_ms"] = round((time.time() - aoi_start) * 1000, 2)
+
+        # 3. Face/text detectors
+        detector_mask = None
+        if include_detectors and self.detector_weight > 0:
+            detector_start = time.time()
+            detector = self._get_face_text_detector()
+            detector_mask = detector.generate_attention_mask(
+                image,
+                detect_faces=self.enable_face_detection,
+                detect_text=self.enable_text_detection,
+            )
+            # Convert mask (multiplier) to saliency contribution
+            # Only add where mask > 1 (detected regions)
+            detector_saliency = np.maximum(0, detector_mask - 1.0)
+            if detector_saliency.max() > 0:
+                detector_saliency = detector_saliency / detector_saliency.max()
+
+            metadata["components"].append("face_text_detector")
+            metadata["detector_ms"] = round((time.time() - detector_start) * 1000, 2)
+        else:
+            detector_saliency = np.zeros((height, width), dtype=np.float32)
+
+        # 4. Weighted fusion
+        total_weight = 0.0
+
+        if bottom_up_map is not None:
+            combined += bottom_up_map * self.bottom_up_weight
+            total_weight += self.bottom_up_weight
+
+        if top_down_map is not None:
+            combined += top_down_map * self.top_down_weight
+            total_weight += self.top_down_weight
+
+        if detector_saliency is not None and detector_saliency.max() > 0:
+            combined += detector_saliency * self.detector_weight
+            total_weight += self.detector_weight
+
+        # Normalize by total weight
+        if total_weight > 0:
+            combined = combined / total_weight
+
+        # 5. Apply center bias
+        if include_center_bias and self.center_bias_strength > 0:
+            center_bias = self._generate_center_bias(width, height)
+            combined = combined * (1 - self.center_bias_strength) + center_bias * self.center_bias_strength
+            metadata["components"].append("center_bias")
+
+        # 6. Apply detector mask as multiplier (boost detected regions)
+        if detector_mask is not None and include_detectors:
+            combined = combined * detector_mask
+
+        # Final normalization to [0, 1]
+        if combined.max() > combined.min():
+            combined = (combined - combined.min()) / (combined.max() - combined.min() + 1e-8)
+
+        elapsed = (time.time() - start_time) * 1000
+        metadata["total_ms"] = round(elapsed, 2)
+
+        logger.info(
+            f"Hybrid v2 heatmap generated in {elapsed:.2f}ms "
+            f"(components: {', '.join(metadata['components'])})"
+        )
+
+        return combined, metadata
+
+    def _generate_top_down_map(
+        self,
+        aoi_data: list[dict],
+        width: int,
+        height: int,
+    ) -> np.ndarray:
+        """Generate top-down attention map from AOI data.
+
+        Args:
+            aoi_data: List of AOI dicts from Gemini Vision.
+            width: Image width.
+            height: Image height.
+
+        Returns:
+            Top-down attention map normalized to [0, 1].
+        """
+        heatmap = np.zeros((height, width), dtype=np.float32)
+
+        for aoi in aoi_data:
+            gaussian = self._aoi_to_gaussian(aoi, width, height)
+            heatmap += gaussian
+
+        # Normalize
+        if heatmap.max() > 0:
+            heatmap = heatmap / heatmap.max()
+
+        return heatmap
 
     def generate_from_aoi(
         self,

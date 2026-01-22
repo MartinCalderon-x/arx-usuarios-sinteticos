@@ -137,12 +137,14 @@ async def root():
     """Root endpoint with service info."""
     return {
         "service": "Visual Attention ML Service",
-        "version": "0.1.0",
+        "version": "0.2.0",
         "model": settings.deepgaze_model,
         "endpoints": {
             "health": "/health",
             "predict": "/predict",
             "predict_compact": "/predict/compact",
+            "predict_image": "/predict/image",
+            "predict_gazeplot": "/predict/gazeplot",
             "warmup": "/warmup",
         },
     }
@@ -378,6 +380,122 @@ async def predict_image(
 
     except Exception as e:
         logger.error(f"Prediction failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
+
+
+# ============================================================================
+# Gaze Plot Endpoint
+# ============================================================================
+
+class Fixation(BaseModel):
+    """A single fixation point in the gaze plot."""
+    x: float
+    y: float
+    order: int
+    intensity: float
+    duration_estimate: int
+    pixel_x: int
+    pixel_y: int
+
+
+class GazePlotResponse(BaseModel):
+    """Response for gaze plot endpoint."""
+    fixations: list[Fixation]
+    scanpath_image_base64: Optional[str] = None
+    heatmap_base64: str
+    metadata: PredictionMetadata
+
+
+@app.post("/predict/gazeplot", response_model=GazePlotResponse)
+async def predict_gazeplot(
+    file: UploadFile = File(..., description="Image file to analyze"),
+    num_fixations: int = Query(10, ge=1, le=30, description="Number of fixations to generate"),
+    colormap: str = Query("jet", description="Colormap for heatmap visualization"),
+    include_scanpath: bool = Query(True, description="Include scanpath visualization image"),
+):
+    """Generate Gaze Plot (scanpath) prediction using Winner-Take-All + IoR.
+
+    This endpoint simulates human visual attention by generating a sequence
+    of fixation points showing where the eye would look and in what order.
+
+    The algorithm:
+    1. Generates a saliency map using DeepGaze
+    2. Finds maximum saliency point (Winner-Take-All) = Fixation #1
+    3. Applies Inhibition of Return (IoR) to suppress that area
+    4. Repeats to find subsequent fixations
+
+    Args:
+        file: Image file (PNG, JPEG, etc.)
+        num_fixations: Maximum number of fixations to generate (1-30)
+        colormap: Matplotlib colormap for visualization
+        include_scanpath: Whether to include visual scanpath image
+
+    Returns:
+        GazePlotResponse with fixation sequence and optional visualization.
+
+    Example response:
+        {
+            "fixations": [
+                {"x": 45.2, "y": 32.1, "order": 1, "intensity": 85.3, ...},
+                {"x": 68.7, "y": 51.4, "order": 2, "intensity": 72.1, ...},
+                ...
+            ],
+            "scanpath_image_base64": "...",
+            "heatmap_base64": "...",
+            "metadata": {...}
+        }
+    """
+    global deepgaze_service
+
+    if deepgaze_service is None:
+        raise HTTPException(status_code=503, detail="Service not initialized")
+
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="File must be an image")
+
+    try:
+        # Read image data
+        image_data = await file.read()
+
+        # Run saliency prediction
+        heatmap, metadata = await deepgaze_service.predict(image_data)
+
+        # Generate gaze plot (sequence of fixations)
+        fixations = deepgaze_service.generate_gaze_plot(
+            heatmap,
+            num_fixations=num_fixations,
+        )
+
+        # Generate heatmap image
+        heatmap_img = deepgaze_service.generate_heatmap_image(heatmap, colormap=colormap)
+        heatmap_buffer = io.BytesIO()
+        heatmap_img.save(heatmap_buffer, format="PNG")
+        heatmap_base64 = base64.b64encode(heatmap_buffer.getvalue()).decode()
+
+        # Generate scanpath visualization if requested
+        scanpath_base64 = None
+        if include_scanpath and fixations:
+            original_image = Image.open(io.BytesIO(image_data)).convert("RGB")
+            scanpath_img = deepgaze_service.generate_scanpath_image(
+                heatmap,
+                fixations,
+                original_image=original_image,
+                colormap=colormap,
+                alpha=0.4,
+            )
+            scanpath_buffer = io.BytesIO()
+            scanpath_img.save(scanpath_buffer, format="PNG")
+            scanpath_base64 = base64.b64encode(scanpath_buffer.getvalue()).decode()
+
+        return GazePlotResponse(
+            fixations=[Fixation(**f) for f in fixations],
+            scanpath_image_base64=scanpath_base64,
+            heatmap_base64=heatmap_base64,
+            metadata=PredictionMetadata(**metadata),
+        )
+
+    except Exception as e:
+        logger.error(f"Gaze plot prediction failed: {e}")
         raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
 
 

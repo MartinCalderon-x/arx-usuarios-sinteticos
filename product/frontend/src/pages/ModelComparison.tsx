@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
-import { analisisApi, ModelComparisonResponse } from '../lib/api';
+import { analisisApi } from '../lib/api';
+import type { ModelComparisonResponse } from '../lib/api';
 
 export default function ModelComparison() {
   const [file, setFile] = useState<File | null>(null);

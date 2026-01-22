@@ -40,6 +40,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
     libglib2.0-0 \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy virtual environment from builder
@@ -49,8 +50,10 @@ ENV PATH="/opt/venv/bin:$PATH"
 # Copy application code
 COPY app/ ./app/
 
-# Create models directory for caching
-RUN mkdir -p /app/models
+# Create models directory and download centerbias
+RUN mkdir -p /app/models && \
+    curl -L -o /app/models/centerbias_mit1003.npy \
+    https://github.com/matthias-k/DeepGaze/releases/download/v1.0.0/centerbias_mit1003.npy
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1

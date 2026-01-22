@@ -10,17 +10,24 @@ References:
 """
 import io
 import logging
+import os
 import time
 from typing import Optional, Tuple
 
 import numpy as np
 import torch
 from PIL import Image
+from scipy.ndimage import zoom
+from scipy.special import logsumexp
 
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+# URL for MIT1003 centerbias from DeepGaze releases
+CENTERBIAS_URL = "https://github.com/matthias-k/DeepGaze/releases/download/v1.0.0/centerbias_mit1003.npy"
+CENTERBIAS_PATH = "/app/models/centerbias_mit1003.npy"
 
 
 class DeepGazeService:
@@ -54,6 +61,21 @@ class DeepGazeService:
         self.model = None
         self._center_bias = None
 
+    def _download_centerbias(self):
+        """Download centerbias file from GitHub releases if not present."""
+        if os.path.exists(CENTERBIAS_PATH):
+            return
+
+        logger.info(f"Downloading centerbias from {CENTERBIAS_URL}")
+        os.makedirs(os.path.dirname(CENTERBIAS_PATH), exist_ok=True)
+
+        try:
+            import urllib.request
+            urllib.request.urlretrieve(CENTERBIAS_URL, CENTERBIAS_PATH)
+            logger.info("Centerbias downloaded successfully")
+        except Exception as e:
+            logger.warning(f"Failed to download centerbias: {e}. Using fallback.")
+
     def _load_model(self):
         """Load DeepGaze model lazily on first prediction.
 
@@ -69,20 +91,29 @@ class DeepGazeService:
         try:
             import deepgaze_pytorch
 
-            if self.model_name == "deepgaze2":
-                self.model = deepgaze_pytorch.DeepGazeII(pretrained=True)
-            elif self.model_name == "deepgaze2e":
+            # Use DeepGazeIIE which doesn't require scanpath history
+            # DeepGazeIII requires fixation history which we don't have
+            if self.model_name == "deepgaze2e":
                 self.model = deepgaze_pytorch.DeepGazeIIE(pretrained=True)
-            elif self.model_name == "deepgaze3":
-                self.model = deepgaze_pytorch.DeepGazeIII(pretrained=True)
+            elif self.model_name in ["deepgaze3", "deepgaze2"]:
+                # Fall back to DeepGazeIIE for simplicity
+                logger.info(f"Using DeepGazeIIE instead of {self.model_name} (simpler API)")
+                self.model = deepgaze_pytorch.DeepGazeIIE(pretrained=True)
             else:
                 raise ValueError(f"Unknown model: {self.model_name}")
 
             self.model = self.model.to(self.device)
             self.model.eval()
 
-            # Load center bias (prior probability based on center tendency)
-            self._center_bias = deepgaze_pytorch.centerbias_mit1003
+            # Download and load centerbias from MIT1003 dataset
+            self._download_centerbias()
+            if os.path.exists(CENTERBIAS_PATH):
+                self._center_bias = np.load(CENTERBIAS_PATH)
+                logger.info(f"Centerbias loaded: shape {self._center_bias.shape}")
+            else:
+                # Fallback: create uniform centerbias
+                self._center_bias = np.zeros((1024, 1024))
+                logger.warning("Using uniform centerbias as fallback")
 
             load_time = time.time() - start_time
             logger.info(f"Model loaded successfully in {load_time:.2f}s")
@@ -148,22 +179,31 @@ class DeepGazeService:
         Returns:
             Center bias tensor of shape (1, 1, height, width).
         """
-        if self._center_bias is None:
-            # Fallback: create simple gaussian center bias
+        if self._center_bias is None or self._center_bias.size == 0:
+            # Fallback: create simple gaussian center bias in log space
             y = np.linspace(-1, 1, height)
             x = np.linspace(-1, 1, width)
             xx, yy = np.meshgrid(x, y)
             center_bias = np.exp(-(xx**2 + yy**2) / 0.5)
             center_bias = np.log(center_bias + 1e-8)
         else:
-            # Resize MIT1003 center bias to target size
-            center_bias = np.array(
-                Image.fromarray(self._center_bias).resize(
-                    (width, height), Image.Resampling.BILINEAR
-                )
+            # Resize MIT1003 center bias to target size using scipy zoom
+            # The centerbias is already in log space
+            orig_h, orig_w = self._center_bias.shape
+            scale_h = height / orig_h
+            scale_w = width / orig_w
+
+            center_bias = zoom(
+                self._center_bias,
+                (scale_h, scale_w),
+                order=1,  # Bilinear interpolation
+                mode="nearest"
             )
 
-        tensor = torch.from_numpy(center_bias).float().unsqueeze(0).unsqueeze(0)
+            # Renormalize log density after rescaling
+            center_bias -= logsumexp(center_bias)
+
+        tensor = torch.from_numpy(center_bias.astype(np.float32)).unsqueeze(0).unsqueeze(0)
         return tensor.to(self.device)
 
     async def predict(

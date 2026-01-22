@@ -92,7 +92,8 @@ git push origin main --tags
 
 | Versión | Fecha | Tipo | Descripción |
 |---------|-------|------|-------------|
-| v0.1.0 | 2026-01-21 | FEATURE | Setup inicial - Backend FastAPI + estructura |
+| v0.2.0 | 2026-01-22 | FEATURE | Sistema dual de atención visual (DeepGaze ML + Híbrido) |
+| v0.0.1-alpha | 2026-01-21 | RELEASE | Primera versión funcional - Backend, Frontend, Auth |
 
 ---
 

@@ -171,6 +171,16 @@ jobs:
       - name: Configure Docker
         run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
 
+      - name: Get ML Service URL
+        id: ml-url
+        run: |
+          SERVICE_NAME="${{ secrets.GCP_SERVICE_NAME }}-ml"
+          if [[ "${{ steps.env.outputs.environment }}" == "dev" ]]; then
+            SERVICE_NAME="${SERVICE_NAME}-dev"
+          fi
+          URL=$(gcloud run services describe $SERVICE_NAME --region ${{ env.REGION }} --format 'value(status.url)')
+          echo "ML_SERVICE_URL=$URL" >> $GITHUB_ENV
+
       - name: Build and Push Backend
         run: |
           IMAGE="${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GCP_REPO_NAME }}/${{ secrets.GCP_SERVICE_NAME }}:${{ steps.env.outputs.image_tag }}"
@@ -198,7 +208,7 @@ jobs:
             --set-env-vars "API_HOST=0.0.0.0" \
             --set-env-vars "API_PORT=8080" \
             --set-env-vars "CORS_ORIGINS=*" \
-            --set-env-vars "ML_SERVICE_URL=${{ needs.deploy-ml-service.outputs.url }}" \
+            --set-env-vars "ML_SERVICE_URL=${{ env.ML_SERVICE_URL }}" \
             --set-env-vars "ML_SERVICE_ENABLED=true" \
             --set-env-vars "ML_SERVICE_TIMEOUT=60"
 
@@ -223,7 +233,7 @@ jobs:
             --set-env-vars "API_HOST=0.0.0.0" \
             --set-env-vars "API_PORT=8080" \
             --set-env-vars "CORS_ORIGINS=*" \
-            --set-env-vars "ML_SERVICE_URL=${{ needs.deploy-ml-service.outputs.url }}" \
+            --set-env-vars "ML_SERVICE_URL=${{ env.ML_SERVICE_URL }}" \
             --set-env-vars "ML_SERVICE_ENABLED=true" \
             --set-env-vars "ML_SERVICE_TIMEOUT=60"
 
@@ -272,6 +282,16 @@ jobs:
       - name: Configure Docker
         run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
 
+      - name: Get Backend URL
+        id: backend-url
+        run: |
+          SERVICE_NAME="${{ secrets.GCP_SERVICE_NAME }}"
+          if [[ "${{ steps.env.outputs.environment }}" == "dev" ]]; then
+            SERVICE_NAME="${SERVICE_NAME}-dev"
+          fi
+          URL=$(gcloud run services describe $SERVICE_NAME --region ${{ env.REGION }} --format 'value(status.url)')
+          echo "BACKEND_URL=$URL" >> $GITHUB_ENV
+
       - name: Build and Push Frontend
         working-directory: product/frontend
         run: |
@@ -279,7 +299,7 @@ jobs:
           docker build -t $IMAGE \
             --build-arg VITE_SUPABASE_URL=${{ secrets.SUPABASE_URL }} \
             --build-arg VITE_SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }} \
-            --build-arg VITE_API_URL=${{ needs.deploy-backend.outputs.url }} \
+            --build-arg VITE_API_URL=${{ env.BACKEND_URL }} \
             -f Dockerfile .
           docker push $IMAGE
           echo "IMAGE=$IMAGE" >> $GITHUB_ENV

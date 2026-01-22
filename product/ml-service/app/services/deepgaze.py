@@ -215,14 +215,16 @@ class DeepGazeService:
             center_bias = np.log(center_bias + 1e-8)
             center_bias = center_bias - logsumexp(center_bias)
 
-        # Ensure correct shape: (1, 1, H, W)
+        # Ensure correct shape: (1, H, W) - DeepGaze expects 3D centerbias
+        # The Finalizer internally does: centerbias.view(batch, 1, H, W)
         center_bias = np.asarray(center_bias, dtype=np.float32)
         if center_bias.shape != (height, width):
             logger.error(f"Centerbias shape mismatch: {center_bias.shape} vs expected ({height}, {width})")
             # Force reshape if needed
             center_bias = np.resize(center_bias, (height, width)).astype(np.float32)
 
-        tensor = torch.from_numpy(center_bias).unsqueeze(0).unsqueeze(0)
+        # Shape should be (batch=1, H, W) for DeepGaze
+        tensor = torch.from_numpy(center_bias).unsqueeze(0)
         return tensor.to(self.device)
 
     async def predict(

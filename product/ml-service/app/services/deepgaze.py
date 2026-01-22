@@ -179,31 +179,50 @@ class DeepGazeService:
         Returns:
             Center bias tensor of shape (1, 1, height, width).
         """
-        if self._center_bias is None or self._center_bias.size == 0:
+        try:
+            if self._center_bias is None or self._center_bias.size == 0:
+                raise ValueError("No centerbias loaded")
+
+            # Ensure centerbias is 2D
+            cb = self._center_bias
+            if cb.ndim != 2:
+                logger.warning(f"Centerbias has unexpected shape: {cb.shape}")
+                raise ValueError("Centerbias is not 2D")
+
+            # Resize MIT1003 center bias to target size using PIL
+            # Convert to image, resize, convert back
+            # Note: centerbias values are log densities, can be negative
+            cb_min, cb_max = cb.min(), cb.max()
+            cb_normalized = (cb - cb_min) / (cb_max - cb_min + 1e-8)
+
+            cb_img = Image.fromarray((cb_normalized * 255).astype(np.uint8))
+            cb_resized = cb_img.resize((width, height), Image.Resampling.BILINEAR)
+            center_bias = np.array(cb_resized).astype(np.float32) / 255.0
+
+            # Restore to original scale
+            center_bias = center_bias * (cb_max - cb_min) + cb_min
+
+            # Renormalize log density after rescaling
+            center_bias = center_bias - logsumexp(center_bias)
+
+        except Exception as e:
+            logger.warning(f"Using fallback centerbias: {e}")
             # Fallback: create simple gaussian center bias in log space
             y = np.linspace(-1, 1, height)
             x = np.linspace(-1, 1, width)
             xx, yy = np.meshgrid(x, y)
             center_bias = np.exp(-(xx**2 + yy**2) / 0.5)
             center_bias = np.log(center_bias + 1e-8)
-        else:
-            # Resize MIT1003 center bias to target size using scipy zoom
-            # The centerbias is already in log space
-            orig_h, orig_w = self._center_bias.shape
-            scale_h = height / orig_h
-            scale_w = width / orig_w
+            center_bias = center_bias - logsumexp(center_bias)
 
-            center_bias = zoom(
-                self._center_bias,
-                (scale_h, scale_w),
-                order=1,  # Bilinear interpolation
-                mode="nearest"
-            )
+        # Ensure correct shape: (1, 1, H, W)
+        center_bias = np.asarray(center_bias, dtype=np.float32)
+        if center_bias.shape != (height, width):
+            logger.error(f"Centerbias shape mismatch: {center_bias.shape} vs expected ({height}, {width})")
+            # Force reshape if needed
+            center_bias = np.resize(center_bias, (height, width)).astype(np.float32)
 
-            # Renormalize log density after rescaling
-            center_bias -= logsumexp(center_bias)
-
-        tensor = torch.from_numpy(center_bias.astype(np.float32)).unsqueeze(0).unsqueeze(0)
+        tensor = torch.from_numpy(center_bias).unsqueeze(0).unsqueeze(0)
         return tensor.to(self.device)
 
     async def predict(

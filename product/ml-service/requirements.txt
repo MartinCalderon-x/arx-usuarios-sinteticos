@@ -15,9 +15,8 @@ torch>=2.0.0
 torchvision>=0.15.0
 
 # DeepGaze Models
-# Note: Install from GitHub for latest version
-# pip install git+https://github.com/matthias-k/DeepGaze.git
-deepgaze-pytorch>=1.0.2
+# Installed from GitHub in Dockerfile (not available on PyPI)
+# See: https://github.com/matthias-k/DeepGaze
 
 # Image Processing
 pillow>=10.0.0

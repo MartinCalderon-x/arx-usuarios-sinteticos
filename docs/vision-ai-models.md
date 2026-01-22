@@ -495,7 +495,8 @@ Este apéndice documenta la evolución del modelo híbrido y las mejoras increme
 | Versión | Fecha | CC | SIM | KL | Alineamiento | Δ CC |
 |---------|-------|-----|-----|-----|--------------|------|
 | v1.0 (Baseline) | 2026-01-20 | 0.36 | 0.49 | 0.67 | 36.0% | - |
-| **v2.0 (Itti-Koch)** | **2026-01-22** | **0.44** | **0.53** | **0.60** | **44.2%** | **+22.2%** |
+| v2.0 (Itti-Koch) | 2026-01-22 | 0.44 | 0.53 | 0.60 | 44.2% | +22.2% |
+| **v2.1 (MediaPipe)** | **2026-01-22** | **0.54** | **0.53** | **0.56** | **53.6%** | **+22.7%** |
 
 ### C.3 Detalle de Cambios por Versión
 
@@ -530,11 +531,47 @@ Este apéndice documenta la evolución del modelo híbrido y las mejoras increme
 
 **Commit:** `9895ba8` - feat(visual-attention): implementar modelo híbrido v2 con Itti-Koch y Gaze Plot
 
-### C.4 Arquitectura v2.0
+---
+
+#### v2.1 - MediaPipe Face Detection (2026-01-22)
+
+**Cambios Técnicos:**
+
+| Componente | Antes | Ahora |
+|------------|-------|-------|
+| **Detector de rostros** | Haar Cascades (OpenCV) | MediaPipe Face Detection |
+| **Fallback** | - | Haar Cascades |
+| **Landmarks faciales** | No | Sí (ojos, nariz, boca, orejas) |
+| **Confianza** | Fija (0.7) | Dinámica por detección |
+
+**Pesos de Atención Actualizados:**
+
+| Región | Peso | Justificación |
+|--------|------|---------------|
+| Ojos | 2.2x | Foco principal de atención humana |
+| Rostro general | 1.8x × confianza | Sesgo evolutivo |
+| Nariz/Boca | 1.5x | Features faciales secundarios |
+| Texto | 1.4x | Prioridad cognitiva |
+
+**Ventajas de MediaPipe:**
+- Detecta rostros en ángulo y parciales
+- Score de confianza por detección
+- 6 landmarks faciales (ojos, nariz, boca, orejas)
+- Más robusto con diferentes iluminaciones
+- Modelo optimizado por Google
+
+**Mejora Observada:**
+- CC: 0.44 → 0.54 (**+22.7%**)
+- KL: 0.60 → 0.56 (**-6.7%**, menor es mejor)
+- Alineamiento: 44.2% → 53.6% (**+9.4 puntos**)
+
+**Commit:** `cae49ad` - feat(backend): mejorar detector de rostros con MediaPipe
+
+### C.4 Arquitectura v2.1
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Modelo Híbrido v2.0                          │
+│                    Modelo Híbrido v2.1                          │
 ├─────────────────────────────────────────────────────────────────┤
 │  Input Image                                                    │
 │       │                                                         │
@@ -545,11 +582,12 @@ Este apéndice documenta la evolución del modelo híbrido y las mejoras increme
 │  │ Bottom-Up   │  │   Top-Down  │  │   Especiales    │   │    │
 │  │ (35%)       │  │   (50%)     │  │   (15%)         │   │    │
 │  │             │  │             │  │                 │   │    │
-│  │ • Intensity │  │ • AOI Data  │  │ • Faces (1.8x)  │   │    │
-│  │ • Color R-G │  │ • Semantic  │  │ • Text (1.4x)   │   │    │
-│  │ • Color B-Y │  │   Context   │  │                 │   │    │
-│  │ • Gabor 4x  │  │             │  │                 │   │    │
-│  │ • C-S Ops   │  │             │  │                 │   │    │
+│  │ • Intensity │  │ • AOI Data  │  │ • MediaPipe     │   │    │
+│  │ • Color R-G │  │ • Semantic  │  │   Face (1.8x)   │   │    │
+│  │ • Color B-Y │  │   Context   │  │ • Eyes (2.2x)   │   │    │
+│  │ • Gabor 4x  │  │             │  │ • Nose/Mouth    │   │    │
+│  │ • C-S Ops   │  │             │  │   (1.5x)        │   │    │
+│  │             │  │             │  │ • Text (1.4x)   │   │    │
 │  └──────┬──────┘  └──────┬──────┘  └───────┬─────────┘   │    │
 │         └────────────────┼─────────────────┘             │    │
 │                          ▼                               │    │
@@ -566,19 +604,30 @@ Este apéndice documenta la evolución del modelo híbrido y las mejoras increme
 
 ### C.5 Objetivo de Performance
 
-| Métrica | Actual | Objetivo | Gap |
-|---------|--------|----------|-----|
-| CC | 0.44 | >0.60 | -0.16 |
-| SIM | 0.53 | >0.65 | -0.12 |
-| KL | 0.60 | <0.45 | +0.15 |
-| Alineamiento | 44.2% | >60% | -15.8 pts |
+| Métrica | Actual (v2.1) | Objetivo | Gap | Progreso |
+|---------|---------------|----------|-----|----------|
+| CC | 0.54 | >0.60 | -0.06 | 90% |
+| SIM | 0.53 | >0.65 | -0.12 | 82% |
+| KL | 0.56 | <0.45 | +0.11 | 80% |
+| Alineamiento | 53.6% | >60% | -6.4 pts | 89% |
 
 ### C.6 Próximas Mejoras Planificadas
 
-1. **Ajuste de pesos de fusión** - Optimizar α, β, γ basado en métricas
+1. **Ajuste de pesos de fusión** - Optimizar α, β, γ basado en métricas (Gap: 0.06 CC)
 2. **Web reading priors** - Patrones F/Z para contenido web
-3. **Temporal saliency** - Considerar animaciones/movimiento
+3. **Mejorar detector de texto** - EAST o PaddleOCR en lugar de Tesseract
 4. **Fine-tuning con feedback** - Aprender de comparaciones históricas
+
+### C.7 Resumen de Progreso
+
+```
+v1.0 ─────► v2.0 ─────► v2.1 ─────► Objetivo
+36.0%      44.2%       53.6%        60%+
+           +22.2%      +21.3%
+           Itti-Koch   MediaPipe
+```
+
+**Progreso total desde baseline:** 36.0% → 53.6% = **+48.9% de mejora relativa**
 
 ---
 

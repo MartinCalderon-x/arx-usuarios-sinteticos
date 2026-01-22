@@ -480,5 +480,107 @@ DEEPGAZE_DEVICE=cpu  # o cuda si hay GPU
 
 ---
 
+## Apéndice C: Tracking de Performance del Modelo Híbrido
+
+Este apéndice documenta la evolución del modelo híbrido y las mejoras incrementales realizadas para acercarlo al ground truth (DeepGaze).
+
+### C.1 Metodología de Evaluación
+
+- **Ground Truth**: DeepGaze IIE (modelo ML con datos reales de eye-tracking)
+- **Imagen de prueba**: Coca-Cola (personas brindando con botellas)
+- **Métricas**: CC, Similitud, KL Divergence, Alineamiento %
+
+### C.2 Historial de Versiones y Métricas
+
+| Versión | Fecha | CC | SIM | KL | Alineamiento | Δ CC |
+|---------|-------|-----|-----|-----|--------------|------|
+| v1.0 (Baseline) | 2026-01-20 | 0.36 | 0.49 | 0.67 | 36.0% | - |
+| **v2.0 (Itti-Koch)** | **2026-01-22** | **0.44** | **0.53** | **0.60** | **44.2%** | **+22.2%** |
+
+### C.3 Detalle de Cambios por Versión
+
+#### v1.0 - Baseline (Gemini AOI + Gaussian)
+- Análisis semántico top-down con Gemini Vision
+- Interpolación gaussiana simple de AOIs
+- Center bias básico
+- **Limitación**: No captura saliencia bottom-up
+
+#### v2.0 - Itti-Koch + Detectores (2026-01-22)
+
+**Cambios Técnicos:**
+
+| Componente | Descripción | Peso |
+|------------|-------------|------|
+| **Itti-Koch Saliency** | Canales de intensidad, color (R-G, B-Y), orientación (Gabor 0°, 45°, 90°, 135°) | 35% |
+| **Gemini AOI (Top-Down)** | Análisis semántico de áreas de interés | 50% |
+| **Face/Text Detector** | Detección de rostros (Haar, 1.8x) y texto (OCR, 1.4x) | 15% |
+| **Center-Surround** | Operación multi-escala para detectar contrastes locales | - |
+
+**Archivos Modificados:**
+- `product/backend/app/services/heatmap.py` - Nueva clase `IttiKochSaliency`, `FaceTextDetector`
+- `product/backend/requirements.txt` - opencv-python-headless, pytesseract
+- `product/ml-service/app/services/deepgaze.py` - Gaze Plot con WTA+IoR
+- `product/ml-service/app/main.py` - Endpoint `/predict/gazeplot`
+
+**Mejora Observada:**
+- CC: 0.36 → 0.44 (**+22.2%**)
+- SIM: 0.49 → 0.53 (**+8.2%**)
+- KL: 0.67 → 0.60 (**-10.4%**, menor es mejor)
+- Alineamiento: 36.0% → 44.2% (**+8.2 puntos**)
+
+**Commit:** `9895ba8` - feat(visual-attention): implementar modelo híbrido v2 con Itti-Koch y Gaze Plot
+
+### C.4 Arquitectura v2.0
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Modelo Híbrido v2.0                          │
+├─────────────────────────────────────────────────────────────────┤
+│  Input Image                                                    │
+│       │                                                         │
+│       ├────────────────┬──────────────────┬───────────────┐    │
+│       ▼                ▼                  ▼               │    │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────┐   │    │
+│  │ Itti-Koch   │  │   Gemini    │  │   Detectores    │   │    │
+│  │ Bottom-Up   │  │   Top-Down  │  │   Especiales    │   │    │
+│  │ (35%)       │  │   (50%)     │  │   (15%)         │   │    │
+│  │             │  │             │  │                 │   │    │
+│  │ • Intensity │  │ • AOI Data  │  │ • Faces (1.8x)  │   │    │
+│  │ • Color R-G │  │ • Semantic  │  │ • Text (1.4x)   │   │    │
+│  │ • Color B-Y │  │   Context   │  │                 │   │    │
+│  │ • Gabor 4x  │  │             │  │                 │   │    │
+│  │ • C-S Ops   │  │             │  │                 │   │    │
+│  └──────┬──────┘  └──────┬──────┘  └───────┬─────────┘   │    │
+│         └────────────────┼─────────────────┘             │    │
+│                          ▼                               │    │
+│               ┌─────────────────┐                        │    │
+│               │  Weighted       │                        │    │
+│               │  Fusion + Bias  │                        │    │
+│               └────────┬────────┘                        │    │
+│                        ▼                                 │    │
+│               ┌─────────────────┐                        │    │
+│               │  Final Heatmap  │                        │    │
+│               └─────────────────┘                        │    │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### C.5 Objetivo de Performance
+
+| Métrica | Actual | Objetivo | Gap |
+|---------|--------|----------|-----|
+| CC | 0.44 | >0.60 | -0.16 |
+| SIM | 0.53 | >0.65 | -0.12 |
+| KL | 0.60 | <0.45 | +0.15 |
+| Alineamiento | 44.2% | >60% | -15.8 pts |
+
+### C.6 Próximas Mejoras Planificadas
+
+1. **Ajuste de pesos de fusión** - Optimizar α, β, γ basado en métricas
+2. **Web reading priors** - Patrones F/Z para contenido web
+3. **Temporal saliency** - Considerar animaciones/movimiento
+4. **Fine-tuning con feedback** - Aprender de comparaciones históricas
+
+---
+
 *Documento generado para el proyecto Usuarios Sintéticos*
-*Última actualización: 2026-01-21*
+*Última actualización: 2026-01-22*

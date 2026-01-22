@@ -19,12 +19,13 @@ app = FastAPI(
 
 # CORS middleware - Must be added FIRST
 # This ensures CORS headers are added even on error responses
+# Note: allow_credentials=True is incompatible with allow_origins=["*"]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
+    allow_credentials=settings.cors_origins != "*",  # Disable credentials with wildcard
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 

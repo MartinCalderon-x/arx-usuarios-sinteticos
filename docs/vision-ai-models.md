@@ -496,7 +496,8 @@ Este apéndice documenta la evolución del modelo híbrido y las mejoras increme
 |---------|-------|-----|-----|-----|--------------|------|
 | v1.0 (Baseline) | 2026-01-20 | 0.36 | 0.49 | 0.67 | 36.0% | - |
 | v2.0 (Itti-Koch) | 2026-01-22 | 0.44 | 0.53 | 0.60 | 44.2% | +22.2% |
-| **v2.1 (MediaPipe)** | **2026-01-22** | **0.54** | **0.53** | **0.56** | **53.6%** | **+22.7%** |
+| v2.1 (MediaPipe) | 2026-01-22 | 0.54 | 0.53 | 0.56 | 53.6% | +22.7% |
+| **v2.2 (Pesos B)** | **2026-01-22** | **0.58** | **0.55** | **0.53** | **57.9%** | **+7.4%** |
 
 ### C.3 Detalle de Cambios por Versión
 
@@ -567,11 +568,35 @@ Este apéndice documenta la evolución del modelo híbrido y las mejoras increme
 
 **Commit:** `cae49ad` - feat(backend): mejorar detector de rostros con MediaPipe
 
-### C.4 Arquitectura v2.1
+---
+
+#### v2.2 - Ajuste de Pesos de Fusión (2026-01-22)
+
+**Cambios Técnicos:**
+
+| Componente | v2.1 | v2.2 | Δ |
+|------------|------|------|---|
+| Bottom-Up (Itti-Koch) | 0.35 | **0.45** | +28.6% |
+| Top-Down (Gemini) | 0.50 | **0.45** | -10% |
+| Detectores (Face/Text) | 0.15 | **0.10** | -33.3% |
+
+**Hipótesis Validada:**
+Mayor peso en Itti-Koch captura mejor el contraste de color de las botellas rojas,
+alineando más con el comportamiento de DeepGaze que detecta saliencia bottom-up.
+
+**Mejora Observada:**
+- CC: 0.54 → 0.58 (**+7.4%**)
+- SIM: 0.53 → 0.55 (**+3.8%**)
+- KL: 0.56 → 0.53 (**-5.4%**, menor es mejor)
+- Alineamiento: 53.6% → 57.9% (**+4.3 puntos**)
+
+**Commit:** `04c30ad` - perf(backend): ajustar pesos de fusión para mejor correlación
+
+### C.4 Arquitectura v2.2
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Modelo Híbrido v2.1                          │
+│                    Modelo Híbrido v2.2                          │
 ├─────────────────────────────────────────────────────────────────┤
 │  Input Image                                                    │
 │       │                                                         │
@@ -580,7 +605,7 @@ Este apéndice documenta la evolución del modelo híbrido y las mejoras increme
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────┐   │    │
 │  │ Itti-Koch   │  │   Gemini    │  │   Detectores    │   │    │
 │  │ Bottom-Up   │  │   Top-Down  │  │   Especiales    │   │    │
-│  │ (35%)       │  │   (50%)     │  │   (15%)         │   │    │
+│  │ (45%)       │  │   (45%)     │  │   (10%)         │   │    │
 │  │             │  │             │  │                 │   │    │
 │  │ • Intensity │  │ • AOI Data  │  │ • MediaPipe     │   │    │
 │  │ • Color R-G │  │ • Semantic  │  │   Face (1.8x)   │   │    │
@@ -604,12 +629,12 @@ Este apéndice documenta la evolución del modelo híbrido y las mejoras increme
 
 ### C.5 Objetivo de Performance
 
-| Métrica | Actual (v2.1) | Objetivo | Gap | Progreso |
+| Métrica | Actual (v2.2) | Objetivo | Gap | Progreso |
 |---------|---------------|----------|-----|----------|
-| CC | 0.54 | >0.60 | -0.06 | 90% |
-| SIM | 0.53 | >0.65 | -0.12 | 82% |
-| KL | 0.56 | <0.45 | +0.11 | 80% |
-| Alineamiento | 53.6% | >60% | -6.4 pts | 89% |
+| CC | 0.58 | >0.60 | -0.02 | **97%** |
+| SIM | 0.55 | >0.65 | -0.10 | 85% |
+| KL | 0.53 | <0.45 | +0.08 | 85% |
+| Alineamiento | 57.9% | >60% | -2.1 pts | **97%** |
 
 ### C.6 Próximas Mejoras Planificadas
 
@@ -621,13 +646,15 @@ Este apéndice documenta la evolución del modelo híbrido y las mejoras increme
 ### C.7 Resumen de Progreso
 
 ```
-v1.0 ─────► v2.0 ─────► v2.1 ─────► Objetivo
-36.0%      44.2%       53.6%        60%+
-           +22.2%      +21.3%
-           Itti-Koch   MediaPipe
+v1.0 ─────► v2.0 ─────► v2.1 ─────► v2.2 ─────► Objetivo
+36.0%      44.2%       53.6%       57.9%        60%+
+           +22.2%      +21.3%      +8.0%
+           Itti-Koch   MediaPipe   Pesos B
 ```
 
-**Progreso total desde baseline:** 36.0% → 53.6% = **+48.9% de mejora relativa**
+**Progreso total desde baseline:** 36.0% → 57.9% = **+60.8% de mejora relativa**
+
+**Gap restante:** Solo 2.1 puntos para alcanzar el objetivo del 60%
 
 ---
 

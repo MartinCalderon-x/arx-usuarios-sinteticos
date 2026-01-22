@@ -43,8 +43,6 @@ jobs:
   # ============================================
   deploy-backend:
     runs-on: ubuntu-latest
-    outputs:
-      backend_url: ${{ steps.get-url.outputs.url }}
 
     steps:
       - name: Checkout
@@ -174,6 +172,16 @@ jobs:
       - name: Configure Docker
         run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
 
+      - name: Get Backend URL
+        id: backend
+        run: |
+          SERVICE_NAME="${{ secrets.GCP_SERVICE_NAME }}"
+          if [[ "${{ steps.env.outputs.environment }}" == "dev" ]]; then
+            SERVICE_NAME="${SERVICE_NAME}-dev"
+          fi
+          BACKEND_URL=$(gcloud run services describe $SERVICE_NAME --region ${{ env.REGION }} --format 'value(status.url)')
+          echo "url=$BACKEND_URL" >> $GITHUB_OUTPUT
+
       - name: Build and Push Frontend
         working-directory: product/frontend
         run: |
@@ -181,7 +189,7 @@ jobs:
           docker build -t $IMAGE \
             --build-arg VITE_SUPABASE_URL=${{ secrets.SUPABASE_URL }} \
             --build-arg VITE_SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }} \
-            --build-arg VITE_API_URL=${{ needs.deploy-backend.outputs.backend_url }} \
+            --build-arg VITE_API_URL=${{ steps.backend.outputs.url }} \
             -f Dockerfile .
           docker push $IMAGE
           echo "IMAGE=$IMAGE" >> $GITHUB_ENV

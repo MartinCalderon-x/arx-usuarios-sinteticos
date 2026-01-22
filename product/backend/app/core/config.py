@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     qwen_api_key: str = ""
     qwen_model: str = "qwen2.5-vl-72b"
 
+    # ML Service (DeepGaze)
+    ml_service_url: str = "http://localhost:8081"
+    ml_service_timeout: int = 60
+    ml_service_enabled: bool = True
+
     # Supabase
     supabase_url: str = ""
     supabase_anon_key: str = ""

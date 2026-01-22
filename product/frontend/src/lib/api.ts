@@ -125,6 +125,21 @@ export const analisisApi = {
     });
     return handleResponse<AnalisisComparison>(response);
   },
+
+  compareModels: async (file: File) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await fetch(`${API_URL}/api/analisis/comparar-modelos`, {
+      method: 'POST',
+      headers: {
+        ...(session?.access_token && { Authorization: `Bearer ${session.access_token}` }),
+      },
+      body: formData,
+    });
+    return handleResponse<ModelComparisonResponse>(response);
+  },
 };
 
 // Interaccion
@@ -342,4 +357,40 @@ export interface ReporteRequest {
   sesiones_ids?: string[];
   incluir_resumen?: boolean;
   incluir_recomendaciones?: boolean;
+}
+
+// Model Comparison Types
+export interface ModelResult {
+  heatmap_base64: string;
+  heatmap_overlay_base64?: string;
+  regions: AttentionRegion[];
+  inference_time_ms: number;
+  model_name: string;
+}
+
+export interface AttentionRegion {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  intensity: number;
+  area: number;
+  orden_visual: number;
+}
+
+export interface ComparisonMetrics {
+  correlation_coefficient: number;
+  kl_divergence: number;
+  similarity: number;
+  nss: number;
+  alignment_percentage: number;
+  verdict: string;
+}
+
+export interface ModelComparisonResponse {
+  ml_model?: ModelResult;
+  hybrid_model: ModelResult;
+  comparison?: ComparisonMetrics;
+  ml_service_available: boolean;
+  total_time_ms: number;
 }

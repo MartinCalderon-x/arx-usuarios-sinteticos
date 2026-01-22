@@ -39,10 +39,104 @@ env:
 
 jobs:
   # ============================================
+  # ML Service Deployment (DeepGaze)
+  # ============================================
+  deploy-ml-service:
+    runs-on: ubuntu-latest
+
+    outputs:
+      url: ${{ steps.get-url.outputs.url }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set environment
+        id: env
+        run: |
+          if [[ "${{ github.event.inputs.environment }}" == "prod" ]]; then
+            echo "environment=prod" >> $GITHUB_OUTPUT
+            echo "image_tag=ml-prod-$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
+          else
+            echo "environment=dev" >> $GITHUB_OUTPUT
+            echo "image_tag=ml-dev-$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: '${{ secrets.GCP_SA_KEY }}'
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Configure Docker
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
+
+      - name: Build and Push ML Service
+        working-directory: product/ml-service
+        run: |
+          IMAGE="${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GCP_REPO_NAME }}/${{ secrets.GCP_SERVICE_NAME }}-ml:${{ steps.env.outputs.image_tag }}"
+          docker build -t $IMAGE -f Dockerfile .
+          docker push $IMAGE
+          echo "IMAGE=$IMAGE" >> $GITHUB_ENV
+
+      - name: Deploy ML Service to Cloud Run (DEV)
+        if: steps.env.outputs.environment == 'dev'
+        run: |
+          gcloud run deploy ${{ secrets.GCP_SERVICE_NAME }}-ml-dev \
+            --image ${{ env.IMAGE }} \
+            --region ${{ env.REGION }} \
+            --platform managed \
+            --allow-unauthenticated \
+            --memory 4Gi \
+            --cpu 2 \
+            --timeout 300 \
+            --concurrency 10 \
+            --max-instances 2 \
+            --set-env-vars "ML_DEEPGAZE_MODEL=deepgaze3" \
+            --set-env-vars "ML_DEVICE=cpu" \
+            --set-env-vars "ML_MAX_IMAGE_SIZE=1024"
+
+      - name: Deploy ML Service to Cloud Run (PROD)
+        if: steps.env.outputs.environment == 'prod'
+        run: |
+          gcloud run deploy ${{ secrets.GCP_SERVICE_NAME }}-ml \
+            --image ${{ env.IMAGE }} \
+            --region ${{ env.REGION }} \
+            --platform managed \
+            --allow-unauthenticated \
+            --memory 4Gi \
+            --cpu 2 \
+            --timeout 300 \
+            --concurrency 10 \
+            --min-instances 1 \
+            --max-instances 5 \
+            --set-env-vars "ML_DEEPGAZE_MODEL=deepgaze3" \
+            --set-env-vars "ML_DEVICE=cpu" \
+            --set-env-vars "ML_MAX_IMAGE_SIZE=1024"
+
+      - name: Get ML Service URL
+        id: get-url
+        run: |
+          SERVICE_NAME="${{ secrets.GCP_SERVICE_NAME }}-ml"
+          if [[ "${{ steps.env.outputs.environment }}" == "dev" ]]; then
+            SERVICE_NAME="${SERVICE_NAME}-dev"
+          fi
+          URL=$(gcloud run services describe $SERVICE_NAME --region ${{ env.REGION }} --format 'value(status.url)')
+          echo "url=$URL" >> $GITHUB_OUTPUT
+
+  # ============================================
   # Backend Deployment
   # ============================================
   deploy-backend:
     runs-on: ubuntu-latest
+    needs: deploy-ml-service
+
+    outputs:
+      url: ${{ steps.get-url.outputs.url }}
 
     steps:
       - name: Checkout
@@ -103,7 +197,10 @@ jobs:
             --set-env-vars "SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
             --set-env-vars "API_HOST=0.0.0.0" \
             --set-env-vars "API_PORT=8080" \
-            --set-env-vars "CORS_ORIGINS=*"
+            --set-env-vars "CORS_ORIGINS=*" \
+            --set-env-vars "ML_SERVICE_URL=${{ needs.deploy-ml-service.outputs.url }}" \
+            --set-env-vars "ML_SERVICE_ENABLED=true" \
+            --set-env-vars "ML_SERVICE_TIMEOUT=60"
 
       - name: Deploy Backend to Cloud Run (PROD)
         if: steps.env.outputs.environment == 'prod'
@@ -125,7 +222,10 @@ jobs:
             --set-env-vars "SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
             --set-env-vars "API_HOST=0.0.0.0" \
             --set-env-vars "API_PORT=8080" \
-            --set-env-vars "CORS_ORIGINS=*"
+            --set-env-vars "CORS_ORIGINS=*" \
+            --set-env-vars "ML_SERVICE_URL=${{ needs.deploy-ml-service.outputs.url }}" \
+            --set-env-vars "ML_SERVICE_ENABLED=true" \
+            --set-env-vars "ML_SERVICE_TIMEOUT=60"
 
       - name: Get Backend URL
         id: get-url
@@ -142,7 +242,7 @@ jobs:
   # ============================================
   deploy-frontend:
     runs-on: ubuntu-latest
-    needs: deploy-backend
+    needs: [deploy-ml-service, deploy-backend]
 
     steps:
       - name: Checkout
@@ -172,16 +272,6 @@ jobs:
       - name: Configure Docker
         run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
 
-      - name: Get Backend URL
-        id: backend
-        run: |
-          SERVICE_NAME="${{ secrets.GCP_SERVICE_NAME }}"
-          if [[ "${{ steps.env.outputs.environment }}" == "dev" ]]; then
-            SERVICE_NAME="${SERVICE_NAME}-dev"
-          fi
-          BACKEND_URL=$(gcloud run services describe $SERVICE_NAME --region ${{ env.REGION }} --format 'value(status.url)')
-          echo "url=$BACKEND_URL" >> $GITHUB_OUTPUT
-
       - name: Build and Push Frontend
         working-directory: product/frontend
         run: |
@@ -189,7 +279,7 @@ jobs:
           docker build -t $IMAGE \
             --build-arg VITE_SUPABASE_URL=${{ secrets.SUPABASE_URL }} \
             --build-arg VITE_SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }} \
-            --build-arg VITE_API_URL=${{ steps.backend.outputs.url }} \
+            --build-arg VITE_API_URL=${{ needs.deploy-backend.outputs.url }} \
             -f Dockerfile .
           docker push $IMAGE
           echo "IMAGE=$IMAGE" >> $GITHUB_ENV
@@ -225,12 +315,15 @@ jobs:
           if [[ "${{ steps.env.outputs.environment }}" == "dev" ]]; then
             FRONTEND_SERVICE="${SERVICE_NAME}-frontend-dev"
             BACKEND_SERVICE="${SERVICE_NAME}-dev"
+            ML_SERVICE="${SERVICE_NAME}-ml-dev"
           else
             FRONTEND_SERVICE="${SERVICE_NAME}-frontend"
             BACKEND_SERVICE="${SERVICE_NAME}"
+            ML_SERVICE="${SERVICE_NAME}-ml"
           fi
           FRONTEND_URL=$(gcloud run services describe $FRONTEND_SERVICE --region ${{ env.REGION }} --format 'value(status.url)')
           BACKEND_URL=$(gcloud run services describe $BACKEND_SERVICE --region ${{ env.REGION }} --format 'value(status.url)')
+          ML_URL=$(gcloud run services describe $ML_SERVICE --region ${{ env.REGION }} --format 'value(status.url)')
           echo "## Deployment Complete! :rocket:" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Environment:** ${{ steps.env.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
@@ -238,3 +331,4 @@ jobs:
           echo "### URLs" >> $GITHUB_STEP_SUMMARY
           echo "- **Frontend:** $FRONTEND_URL" >> $GITHUB_STEP_SUMMARY
           echo "- **Backend:** $BACKEND_URL" >> $GITHUB_STEP_SUMMARY
+          echo "- **ML Service:** $ML_URL" >> $GITHUB_STEP_SUMMARY

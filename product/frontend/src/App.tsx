@@ -11,6 +11,7 @@ import { AnalisisPage } from './pages/Analisis';
 import { AnalisisForm } from './pages/AnalisisForm';
 import { Interaccion } from './pages/Interaccion';
 import { Reportes } from './pages/Reportes';
+import ModelComparison from './pages/ModelComparison';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -86,6 +87,7 @@ function AppRoutes() {
         <Route path="arquetipos/:id/editar" element={<ArquetipoForm />} />
         <Route path="analisis" element={<AnalisisPage />} />
         <Route path="analisis/nuevo" element={<AnalisisForm />} />
+        <Route path="analisis/comparar-modelos" element={<ModelComparison />} />
         <Route path="interaccion" element={<Interaccion />} />
         <Route path="reportes" element={<Reportes />} />
       </Route>

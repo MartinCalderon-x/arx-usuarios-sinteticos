@@ -50,6 +50,12 @@ try:
 except ImportError:
     TESSERACT_AVAILABLE = False
 
+try:
+    import mediapipe as mp
+    MEDIAPIPE_AVAILABLE = True
+except ImportError:
+    MEDIAPIPE_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -290,6 +296,9 @@ class FaceTextDetector:
     priority for text/symbols. This detector identifies these regions
     and provides attention weight masks.
 
+    Uses MediaPipe Face Detection as primary detector (more accurate),
+    with OpenCV Haar Cascades as fallback.
+
     References:
         - Cerf, M., et al. (2009). Faces and text attract gaze.
         - Rayner, K. (1998). Eye movements in reading and information processing.
@@ -301,21 +310,36 @@ class FaceTextDetector:
         text_weight: float = 1.4,
         face_scale_factor: float = 1.1,
         face_min_neighbors: int = 5,
+        min_detection_confidence: float = 0.5,
     ):
         """Initialize face and text detector.
 
         Args:
             face_weight: Attention multiplier for face regions.
             text_weight: Attention multiplier for text regions.
-            face_scale_factor: Scale factor for face detection cascade.
-            face_min_neighbors: Minimum neighbors for face detection.
+            face_scale_factor: Scale factor for Haar cascade (fallback).
+            face_min_neighbors: Minimum neighbors for Haar cascade.
+            min_detection_confidence: Minimum confidence for MediaPipe detection.
         """
         self.face_weight = face_weight
         self.text_weight = text_weight
         self.face_scale_factor = face_scale_factor
         self.face_min_neighbors = face_min_neighbors
+        self.min_detection_confidence = min_detection_confidence
 
-        # Load face cascade classifier
+        # Initialize MediaPipe Face Detection (primary)
+        self._mp_face_detection = None
+        if MEDIAPIPE_AVAILABLE:
+            try:
+                self._mp_face_detection = mp.solutions.face_detection.FaceDetection(
+                    model_selection=1,  # 1 = full range model (better for distant faces)
+                    min_detection_confidence=min_detection_confidence,
+                )
+                logger.info("MediaPipe Face Detection initialized")
+            except Exception as e:
+                logger.warning(f"Failed to initialize MediaPipe: {e}")
+
+        # Load Haar cascade classifier (fallback)
         self._face_cascade = None
         if CV2_AVAILABLE:
             try:
@@ -325,7 +349,103 @@ class FaceTextDetector:
                 logger.warning(f"Failed to load face cascade: {e}")
 
     def detect_faces(self, image: np.ndarray) -> List[dict]:
-        """Detect faces in image.
+        """Detect faces in image using MediaPipe (primary) or Haar (fallback).
+
+        Args:
+            image: RGB image as numpy array.
+
+        Returns:
+            List of face regions with bounding boxes and confidence.
+        """
+        # Try MediaPipe first (more accurate)
+        if self._mp_face_detection is not None:
+            faces = self._detect_faces_mediapipe(image)
+            if faces:
+                logger.debug(f"MediaPipe detected {len(faces)} face(s)")
+                return faces
+
+        # Fallback to Haar Cascade
+        if self._face_cascade is not None:
+            faces = self._detect_faces_haar(image)
+            if faces:
+                logger.debug(f"Haar Cascade detected {len(faces)} face(s)")
+                return faces
+
+        return []
+
+    def _detect_faces_mediapipe(self, image: np.ndarray) -> List[dict]:
+        """Detect faces using MediaPipe Face Detection.
+
+        MediaPipe provides:
+        - Higher accuracy than Haar cascades
+        - Confidence scores
+        - Key facial landmarks (eyes, nose, mouth, ears)
+
+        Args:
+            image: RGB image as numpy array.
+
+        Returns:
+            List of face dicts with bounding box, confidence, and landmarks.
+        """
+        if self._mp_face_detection is None:
+            return []
+
+        try:
+            h, w = image.shape[:2]
+            results = self._mp_face_detection.process(image.astype(np.uint8))
+
+            if not results.detections:
+                return []
+
+            faces = []
+            for detection in results.detections:
+                bbox = detection.location_data.relative_bounding_box
+
+                # Convert relative coordinates to pixels
+                x = int(bbox.xmin * w)
+                y = int(bbox.ymin * h)
+                width = int(bbox.width * w)
+                height = int(bbox.height * h)
+
+                # Ensure bounds are within image
+                x = max(0, x)
+                y = max(0, y)
+                width = min(width, w - x)
+                height = min(height, h - y)
+
+                # Get confidence score
+                confidence = detection.score[0] if detection.score else 0.5
+
+                # Extract key landmarks (relative to bounding box)
+                landmarks = {}
+                if detection.location_data.relative_keypoints:
+                    keypoint_names = ['right_eye', 'left_eye', 'nose_tip',
+                                     'mouth_center', 'right_ear', 'left_ear']
+                    for i, kp in enumerate(detection.location_data.relative_keypoints):
+                        if i < len(keypoint_names):
+                            landmarks[keypoint_names[i]] = {
+                                'x': int(kp.x * w),
+                                'y': int(kp.y * h)
+                            }
+
+                faces.append({
+                    "x": x,
+                    "y": y,
+                    "width": width,
+                    "height": height,
+                    "confidence": round(confidence, 3),
+                    "detector": "mediapipe",
+                    "landmarks": landmarks,
+                })
+
+            return faces
+
+        except Exception as e:
+            logger.warning(f"MediaPipe face detection failed: {e}")
+            return []
+
+    def _detect_faces_haar(self, image: np.ndarray) -> List[dict]:
+        """Detect faces using OpenCV Haar Cascade (fallback).
 
         Args:
             image: RGB image as numpy array.
@@ -336,19 +456,31 @@ class FaceTextDetector:
         if not CV2_AVAILABLE or self._face_cascade is None:
             return []
 
-        gray = cv2.cvtColor(image.astype(np.uint8), cv2.COLOR_RGB2GRAY)
+        try:
+            gray = cv2.cvtColor(image.astype(np.uint8), cv2.COLOR_RGB2GRAY)
 
-        faces = self._face_cascade.detectMultiScale(
-            gray,
-            scaleFactor=self.face_scale_factor,
-            minNeighbors=self.face_min_neighbors,
-            minSize=(30, 30),
-        )
+            faces = self._face_cascade.detectMultiScale(
+                gray,
+                scaleFactor=self.face_scale_factor,
+                minNeighbors=self.face_min_neighbors,
+                minSize=(30, 30),
+            )
 
-        return [
-            {"x": int(x), "y": int(y), "width": int(w), "height": int(h)}
-            for (x, y, w, h) in faces
-        ]
+            return [
+                {
+                    "x": int(x),
+                    "y": int(y),
+                    "width": int(w),
+                    "height": int(h),
+                    "confidence": 0.7,  # Haar doesn't provide confidence
+                    "detector": "haar",
+                }
+                for (x, y, w, h) in faces
+            ]
+
+        except Exception as e:
+            logger.warning(f"Haar face detection failed: {e}")
+            return []
 
     def detect_text(self, image: np.ndarray) -> List[dict]:
         """Detect text regions in image using OCR.
@@ -401,6 +533,10 @@ class FaceTextDetector:
     ) -> np.ndarray:
         """Generate attention weight mask for faces and text.
 
+        When MediaPipe is available, also adds extra attention to:
+        - Eyes (highest attention - humans look at eyes first)
+        - Nose and mouth (secondary facial features)
+
         Args:
             image: RGB image as numpy array.
             detect_faces: Whether to detect and weight faces.
@@ -411,11 +547,17 @@ class FaceTextDetector:
         """
         height, width = image.shape[:2]
         mask = np.ones((height, width), dtype=np.float32)
+        yy, xx = np.ogrid[:height, :width]
 
         if detect_faces:
             faces = self.detect_faces(image)
             for face in faces:
                 x, y, w, h = face["x"], face["y"], face["width"], face["height"]
+                confidence = face.get("confidence", 0.7)
+
+                # Scale face weight by detection confidence
+                effective_weight = 1.0 + (self.face_weight - 1.0) * confidence
+
                 # Expand face region slightly (faces attract attention around them)
                 expand = int(min(w, h) * 0.2)
                 x1 = max(0, x - expand)
@@ -426,12 +568,35 @@ class FaceTextDetector:
                 # Apply gaussian-weighted face attention
                 cy, cx = (y1 + y2) // 2, (x1 + x2) // 2
                 sigma = max(w, h) * 0.5
-                yy, xx = np.ogrid[:height, :width]
                 gaussian = np.exp(-((xx - cx) ** 2 + (yy - cy) ** 2) / (2 * sigma ** 2))
-                mask += gaussian * (self.face_weight - 1.0)
+                mask += gaussian * (effective_weight - 1.0)
+
+                # If MediaPipe landmarks available, add extra weight to eyes
+                # Eyes are the most attention-grabbing facial feature
+                landmarks = face.get("landmarks", {})
+                if landmarks:
+                    eye_weight = 2.2  # Eyes get highest attention
+                    eye_sigma = max(w, h) * 0.15  # Smaller sigma for precise eye focus
+
+                    for eye_key in ["left_eye", "right_eye"]:
+                        if eye_key in landmarks:
+                            ex, ey = landmarks[eye_key]["x"], landmarks[eye_key]["y"]
+                            eye_gaussian = np.exp(-((xx - ex) ** 2 + (yy - ey) ** 2) / (2 * eye_sigma ** 2))
+                            mask += eye_gaussian * (eye_weight - 1.0)
+
+                    # Nose and mouth get moderate extra attention
+                    mouth_weight = 1.5
+                    mouth_sigma = max(w, h) * 0.2
+
+                    for feature_key in ["nose_tip", "mouth_center"]:
+                        if feature_key in landmarks:
+                            fx, fy = landmarks[feature_key]["x"], landmarks[feature_key]["y"]
+                            feature_gaussian = np.exp(-((xx - fx) ** 2 + (yy - fy) ** 2) / (2 * mouth_sigma ** 2))
+                            mask += feature_gaussian * (mouth_weight - 1.0)
 
             if faces:
-                logger.debug(f"Detected {len(faces)} face(s)")
+                detector_used = faces[0].get("detector", "unknown") if faces else "none"
+                logger.debug(f"Detected {len(faces)} face(s) using {detector_used}")
 
         if detect_text:
             text_regions = self.detect_text(image)

@@ -652,9 +652,9 @@ class HybridHeatmapService:
         default_sigma_factor: float = 0.5,
         center_bias_strength: float = 0.15,
         min_sigma: int = 20,
-        bottom_up_weight: float = 0.35,
-        top_down_weight: float = 0.50,
-        detector_weight: float = 0.15,
+        bottom_up_weight: float = 0.45,
+        top_down_weight: float = 0.45,
+        detector_weight: float = 0.10,
         enable_face_detection: bool = True,
         enable_text_detection: bool = True,
     ):

@@ -210,7 +210,7 @@ jobs:
             --set-env-vars "CORS_ORIGINS=*" \
             --set-env-vars "ML_SERVICE_URL=${{ env.ML_SERVICE_URL }}" \
             --set-env-vars "ML_SERVICE_ENABLED=true" \
-            --set-env-vars "ML_SERVICE_TIMEOUT=60"
+            --set-env-vars "ML_SERVICE_TIMEOUT=120"
 
       - name: Deploy Backend to Cloud Run (PROD)
         if: steps.env.outputs.environment == 'prod'
@@ -235,7 +235,7 @@ jobs:
             --set-env-vars "CORS_ORIGINS=*" \
             --set-env-vars "ML_SERVICE_URL=${{ env.ML_SERVICE_URL }}" \
             --set-env-vars "ML_SERVICE_ENABLED=true" \
-            --set-env-vars "ML_SERVICE_TIMEOUT=60"
+            --set-env-vars "ML_SERVICE_TIMEOUT=120"
 
       - name: Get Backend URL
         id: get-url

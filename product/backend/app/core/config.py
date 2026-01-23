@@ -22,7 +22,7 @@ class Settings(BaseSettings):
 
     # ML Service (DeepGaze)
     ml_service_url: str = "http://localhost:8081"
-    ml_service_timeout: int = 60
+    ml_service_timeout: int = 120  # 120s para cold start de DeepGaze III
     ml_service_enabled: bool = True
 
     # Supabase

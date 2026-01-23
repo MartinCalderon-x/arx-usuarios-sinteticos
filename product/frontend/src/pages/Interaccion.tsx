@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
-import { Send, User, Bot, Loader2, Plus } from 'lucide-react';
-import { arquetiposApi, interaccionApi, type Arquetipo } from '../lib/api';
+import { useNavigate } from 'react-router-dom';
+import { Send, User, Bot, Loader2, Plus, Users, Sparkles } from 'lucide-react';
+import { arquetiposApi, interaccionApi, type Arquetipo, type ArquetipoTemplate } from '../lib/api';
 
 interface Message {
   id: string;
@@ -11,16 +12,21 @@ interface Message {
 }
 
 export function Interaccion() {
+  const navigate = useNavigate();
   const [arquetipos, setArquetipos] = useState<Arquetipo[]>([]);
+  const [templates, setTemplates] = useState<ArquetipoTemplate[]>([]);
   const [selectedArquetipo, setSelectedArquetipo] = useState<string>('');
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loadingArquetipos, setLoadingArquetipos] = useState(true);
+  const [creatingFromTemplate, setCreatingFromTemplate] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     loadArquetipos();
+    loadTemplates();
   }, []);
 
   useEffect(() => {
@@ -29,10 +35,45 @@ export function Interaccion() {
 
   async function loadArquetipos() {
     try {
+      setLoadingArquetipos(true);
       const { arquetipos } = await arquetiposApi.list();
       setArquetipos(arquetipos);
     } catch (error) {
       console.error('Error loading arquetipos:', error);
+    } finally {
+      setLoadingArquetipos(false);
+    }
+  }
+
+  async function loadTemplates() {
+    try {
+      const { templates } = await arquetiposApi.templates();
+      setTemplates(templates.slice(0, 4)); // Show only 4 quick templates
+    } catch (error) {
+      console.error('Error loading templates:', error);
+    }
+  }
+
+  async function createFromTemplate(template: ArquetipoTemplate) {
+    try {
+      setCreatingFromTemplate(true);
+      const newArquetipo = await arquetiposApi.create({
+        nombre: template.nombre,
+        descripcion: template.descripcion,
+        edad: template.edad,
+        ocupacion: template.ocupacion,
+        nivel_digital: template.nivel_digital,
+        industria: template.industria,
+        comportamiento: template.comportamiento,
+        frustraciones: template.frustraciones,
+        objetivos: template.objetivos,
+      });
+      setArquetipos(prev => [...prev, newArquetipo]);
+      setSelectedArquetipo(newArquetipo.id);
+    } catch (error) {
+      console.error('Error creating archetype from template:', error);
+    } finally {
+      setCreatingFromTemplate(false);
     }
   }
 
@@ -96,20 +137,75 @@ export function Interaccion() {
       <div className="w-80 flex flex-col bg-bg-secondary rounded-xl border border-border">
         <div className="p-4 border-b border-border">
           <h2 className="font-semibold text-text-primary mb-3">Selecciona un arquetipo</h2>
-          <select
-            value={selectedArquetipo}
-            onChange={(e) => {
-              setSelectedArquetipo(e.target.value);
-              startNewChat();
-            }}
-            className="w-full px-3 py-2 rounded-lg border border-border bg-bg-primary text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
-          >
-            <option value="">Seleccionar...</option>
-            {arquetipos.map(a => (
-              <option key={a.id} value={a.id}>{a.nombre}</option>
-            ))}
-          </select>
+
+          {loadingArquetipos ? (
+            <div className="flex items-center justify-center py-4">
+              <div className="w-6 h-6 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+            </div>
+          ) : arquetipos.length > 0 ? (
+            <select
+              value={selectedArquetipo}
+              onChange={(e) => {
+                setSelectedArquetipo(e.target.value);
+                startNewChat();
+              }}
+              className="w-full px-3 py-2 rounded-lg border border-border bg-bg-primary text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
+            >
+              <option value="">Seleccionar...</option>
+              {arquetipos.map(a => (
+                <option key={a.id} value={a.id}>{a.nombre}</option>
+              ))}
+            </select>
+          ) : (
+            <div className="text-center py-2">
+              <p className="text-sm text-text-muted mb-3">
+                No tienes arquetipos creados
+              </p>
+              <button
+                onClick={() => navigate('/arquetipos/nuevo')}
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm bg-primary hover:bg-primary-dark text-white rounded-lg transition-colors"
+              >
+                <Plus size={16} />
+                Crear arquetipo
+              </button>
+            </div>
+          )}
         </div>
+
+        {/* Empty state with quick templates */}
+        {!loadingArquetipos && arquetipos.length === 0 && templates.length > 0 && (
+          <div className="p-4 flex-1 overflow-auto">
+            <div className="flex items-center gap-2 mb-3">
+              <Sparkles size={16} className="text-accent" />
+              <h3 className="text-sm font-medium text-text-secondary">Creacion rapida</h3>
+            </div>
+            <p className="text-xs text-text-muted mb-3">
+              Crea un arquetipo desde una plantilla para comenzar:
+            </p>
+            <div className="space-y-2">
+              {templates.map(template => (
+                <button
+                  key={template.id}
+                  onClick={() => createFromTemplate(template)}
+                  disabled={creatingFromTemplate}
+                  className="w-full text-left p-3 rounded-lg border border-border hover:bg-bg-tertiary transition-colors disabled:opacity-50"
+                >
+                  <div className="flex items-center gap-2">
+                    <Users size={14} className="text-primary" />
+                    <span className="text-sm font-medium text-text-primary">{template.nombre}</span>
+                  </div>
+                  <p className="text-xs text-text-muted mt-1 line-clamp-2">{template.descripcion}</p>
+                </button>
+              ))}
+            </div>
+            {creatingFromTemplate && (
+              <div className="flex items-center justify-center gap-2 mt-3 text-sm text-text-muted">
+                <Loader2 size={14} className="animate-spin" />
+                Creando arquetipo...
+              </div>
+            )}
+          </div>
+        )}
 
         {selectedArquetipoData && (
           <div className="p-4 flex-1 overflow-auto">
@@ -142,8 +238,33 @@ export function Interaccion() {
       {/* Chat */}
       <div className="flex-1 flex flex-col bg-bg-secondary rounded-xl border border-border">
         {!selectedArquetipo ? (
-          <div className="flex-1 flex items-center justify-center text-text-muted">
-            Selecciona un arquetipo para comenzar
+          <div className="flex-1 flex flex-col items-center justify-center text-text-muted p-8">
+            {loadingArquetipos ? (
+              <div className="w-8 h-8 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+            ) : arquetipos.length === 0 ? (
+              <div className="text-center">
+                <Users size={48} className="mx-auto mb-4 text-text-muted/50" />
+                <h3 className="text-lg font-medium text-text-primary mb-2">
+                  Crea tu primer arquetipo
+                </h3>
+                <p className="text-sm text-text-muted mb-4 max-w-md">
+                  Los arquetipos son usuarios sinteticos que simulan comportamientos reales.
+                  Usa una plantilla rapida o crea uno personalizado.
+                </p>
+                <button
+                  onClick={() => navigate('/arquetipos/nuevo')}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-dark text-white rounded-lg transition-colors"
+                >
+                  <Plus size={18} />
+                  Crear arquetipo personalizado
+                </button>
+              </div>
+            ) : (
+              <>
+                <User size={48} className="mb-4 text-text-muted/50" />
+                <p>Selecciona un arquetipo para comenzar</p>
+              </>
+            )}
           </div>
         ) : (
           <>

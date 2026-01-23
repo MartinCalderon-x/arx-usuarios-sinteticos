@@ -1,8 +1,10 @@
 """Visual Analysis API routes."""
 import asyncio
+import base64
 import io
 import time
 import logging
+import uuid
 from fastapi import APIRouter, HTTPException, UploadFile, File, Depends, Query
 from typing import Optional
 from pydantic import BaseModel
@@ -40,6 +42,7 @@ class AnalisisResponse(BaseModel):
     clarity_score: Optional[float] = None
     areas_interes: Optional[list[dict]] = None
     insights: Optional[list[str]] = None
+    modelo_usado: Optional[str] = None
     created_at: Optional[str] = None
 
 
@@ -50,28 +53,111 @@ def get_user_id(user: dict) -> str:
 
 @router.post("/imagen", response_model=AnalisisResponse)
 async def analizar_imagen(file: UploadFile = File(...), user: dict = Depends(require_auth)):
-    """Analyze an uploaded image with Vision AI. Requires authentication."""
+    """Analyze an uploaded image with DeepGaze III and Gemini Vision.
+
+    This endpoint:
+    1. Generates a unique analysis ID
+    2. Analyzes with Gemini Vision for AOI and insights
+    3. Generates heatmap with DeepGaze III via ML-Service
+    4. Uploads all images to private Supabase Storage
+    5. Returns signed URLs (valid for 1 hour)
+
+    Requires authentication.
+    """
     user_id = get_user_id(user)
+    analisis_id = str(uuid.uuid4())
 
     # Read image content
     content = await file.read()
+    content_type = file.content_type or "image/png"
 
-    # Analyze with Gemini Vision
-    analysis_result = await gemini_service.analyze_image(content, file.content_type)
+    # 1. Analyze with Gemini Vision (AOI, insights)
+    analysis_result = await gemini_service.analyze_image(content, content_type)
+    aoi_data = analysis_result.get("areas_interes", [])
 
-    # Save to database
+    # 2. Generate heatmap with DeepGaze III via ML-Service
+    heatmap_bytes = None
+    overlay_bytes = None
+    modelo_usado = "hybrid_v2_ittikoch"  # Fallback if ML-Service unavailable
+
+    if settings.ml_service_enabled:
+        try:
+            async with httpx.AsyncClient(timeout=settings.ml_service_timeout) as client:
+                response = await client.post(
+                    f"{settings.ml_service_url}/predict",
+                    files={"file": (file.filename or "image.png", content, content_type)},
+                    params={"overlay": True, "colormap": "jet"},
+                )
+                if response.status_code == 200:
+                    ml_result = response.json()
+                    heatmap_bytes = base64.b64decode(ml_result["heatmap_base64"])
+                    if ml_result.get("heatmap_overlay_base64"):
+                        overlay_bytes = base64.b64decode(ml_result["heatmap_overlay_base64"])
+                    modelo_usado = ml_result.get("metadata", {}).get("model", "deepgaze3")
+                    logger.info(f"ML-Service heatmap generated with {modelo_usado}")
+                else:
+                    logger.warning(f"ML-Service returned {response.status_code}, using hybrid fallback")
+        except Exception as e:
+            logger.warning(f"ML-Service unavailable ({e}), using hybrid fallback")
+
+    # Fallback: Generate hybrid heatmap if ML-Service failed
+    if heatmap_bytes is None:
+        image = Image.open(io.BytesIO(content)).convert("RGB")
+        image_array = np.array(image)
+        heatmap, _ = hybrid_service.generate_hybrid(
+            image_array, aoi_data, include_center_bias=True, include_bottom_up=True
+        )
+        heatmap_bytes = base64.b64decode(hybrid_service.heatmap_to_base64(heatmap, colormap="jet"))
+        overlay_bytes = base64.b64decode(
+            hybrid_service.heatmap_to_base64(heatmap, colormap="jet", original_image=image, alpha=0.5)
+        )
+
+    # 3. Upload to private Supabase Storage
+    try:
+        original_path = supabase.upload_image_to_storage(
+            content, user_id, analisis_id, "original.png", content_type
+        )
+        heatmap_path = supabase.upload_image_to_storage(
+            heatmap_bytes, user_id, analisis_id, "heatmap.png"
+        )
+        overlay_path = supabase.upload_image_to_storage(
+            overlay_bytes, user_id, analisis_id, "heatmap_overlay.png"
+        ) if overlay_bytes else None
+    except Exception as e:
+        logger.error(f"Storage upload failed: {e}")
+        raise HTTPException(status_code=500, detail="Error al subir imagenes a storage")
+
+    # 4. Save to database (store paths, not URLs)
     data = {
-        "imagen_url": f"upload://{file.filename}",
+        "id": analisis_id,
+        "imagen_path": original_path,
+        "heatmap_path": heatmap_path,
+        "focus_map_path": overlay_path,
         "tipo_analisis": ["heatmap", "focus_map", "aoi"],
         "resultados": analysis_result,
         "clarity_score": analysis_result.get("clarity_score"),
-        "areas_interes": analysis_result.get("areas_interes", []),
+        "areas_interes": aoi_data,
         "insights": analysis_result.get("insights", []),
+        "modelo_usado": modelo_usado,
     }
     result = await supabase.create_analisis(data, user_id)
     if not result:
         raise HTTPException(status_code=500, detail="Error al guardar analisis")
-    return result
+
+    # 5. Generate signed URLs for response
+    signed_urls = supabase.get_signed_urls_for_analisis(user_id, analisis_id)
+
+    return AnalisisResponse(
+        id=analisis_id,
+        imagen_url=signed_urls.get("original") or f"storage://{original_path}",
+        heatmap_url=signed_urls.get("heatmap"),
+        focus_map_url=signed_urls.get("overlay"),
+        clarity_score=analysis_result.get("clarity_score"),
+        areas_interes=aoi_data,
+        insights=analysis_result.get("insights", []),
+        modelo_usado=modelo_usado,
+        created_at=result.get("created_at"),
+    )
 
 
 @router.post("/url", response_model=AnalisisResponse)
@@ -99,12 +185,26 @@ async def analizar_url(request: AnalisisURLRequest, user: dict = Depends(require
 
 @router.get("/{analisis_id}", response_model=AnalisisResponse)
 async def get_analisis(analisis_id: str, user: dict = Depends(require_auth)):
-    """Get analysis results by ID. Requires authentication."""
+    """Get analysis results by ID with fresh signed URLs. Requires authentication."""
     user_id = get_user_id(user)
     result = await supabase.get_analisis(analisis_id, user_id)
     if not result:
         raise HTTPException(status_code=404, detail="Analisis no encontrado")
-    return result
+
+    # Regenerate signed URLs (they expire after 1 hour)
+    signed_urls = supabase.get_signed_urls_for_analisis(user_id, analisis_id)
+
+    return AnalisisResponse(
+        id=result.get("id"),
+        imagen_url=signed_urls.get("original") or result.get("imagen_url", ""),
+        heatmap_url=signed_urls.get("heatmap") or result.get("heatmap_url"),
+        focus_map_url=signed_urls.get("overlay") or result.get("focus_map_url"),
+        clarity_score=result.get("clarity_score"),
+        areas_interes=result.get("areas_interes"),
+        insights=result.get("insights"),
+        modelo_usado=result.get("modelo_usado"),
+        created_at=result.get("created_at"),
+    )
 
 
 @router.get("/")

@@ -37,10 +37,14 @@ class DeepGazeService:
     DeepGaze models. The models are trained on real eye-tracking data
     from the MIT1003 dataset.
 
+    DeepGaze III requires fixation history, which we simulate using
+    Winner-Take-All + Inhibition of Return on an initial saliency map.
+
     Attributes:
         model_name: Name of the DeepGaze model variant to use.
         device: Torch device (cpu or cuda).
         model: Loaded PyTorch model instance.
+        requires_fixation_history: Whether the model needs fixation history.
 
     Example:
         >>> service = DeepGazeService()
@@ -60,6 +64,8 @@ class DeepGazeService:
         self.device = device or settings.device
         self.model = None
         self._center_bias = None
+        self.requires_fixation_history = False
+        self._initial_model = None  # For DeepGaze III: model to generate initial saliency
 
     def _download_centerbias(self):
         """Download centerbias file from GitHub releases if not present."""
@@ -81,6 +87,9 @@ class DeepGazeService:
 
         The model is loaded on-demand to reduce startup time and memory
         usage when the service is not immediately needed.
+
+        For DeepGaze III, we also load DeepGazeIIE to generate initial
+        saliency maps for simulating fixation history.
         """
         if self.model is not None:
             return
@@ -91,14 +100,22 @@ class DeepGazeService:
         try:
             import deepgaze_pytorch
 
-            # Use DeepGazeIIE which doesn't require scanpath history
-            # DeepGazeIII requires fixation history which we don't have
-            if self.model_name == "deepgaze2e":
+            if self.model_name == "deepgaze3":
+                # DeepGaze III requires fixation history
+                # We simulate it using WTA + IoR on initial saliency
+                self.model = deepgaze_pytorch.DeepGazeIII(pretrained=True)
+                self.requires_fixation_history = True
+                # Load IIE model for initial saliency estimation
+                self._initial_model = deepgaze_pytorch.DeepGazeIIE(pretrained=True)
+                self._initial_model = self._initial_model.to(self.device)
+                self._initial_model.eval()
+                logger.info("DeepGaze III loaded with IIE for initial saliency")
+            elif self.model_name == "deepgaze2e":
                 self.model = deepgaze_pytorch.DeepGazeIIE(pretrained=True)
-            elif self.model_name in ["deepgaze3", "deepgaze2"]:
-                # Fall back to DeepGazeIIE for simplicity
-                logger.info(f"Using DeepGazeIIE instead of {self.model_name} (simpler API)")
-                self.model = deepgaze_pytorch.DeepGazeIIE(pretrained=True)
+                self.requires_fixation_history = False
+            elif self.model_name == "deepgaze2":
+                self.model = deepgaze_pytorch.DeepGazeII(pretrained=True)
+                self.requires_fixation_history = False
             else:
                 raise ValueError(f"Unknown model: {self.model_name}")
 
@@ -238,6 +255,58 @@ class DeepGazeService:
         tensor = torch.from_numpy(center_bias).unsqueeze(0)
         return tensor.to(self.device)
 
+    def _simulate_fixation_history(
+        self,
+        initial_saliency: np.ndarray,
+        num_fixations: int = 4
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Simulate fixation history using Winner-Take-All + Inhibition of Return.
+
+        DeepGaze III requires a history of previous fixations to predict the next
+        fixation. We simulate this by:
+        1. Using DeepGazeIIE to get initial saliency (without fixation history)
+        2. Applying WTA + IoR to generate a realistic sequence of fixations
+
+        Args:
+            initial_saliency: Initial saliency map from DeepGazeIIE (H, W) in [0, 1].
+            num_fixations: Number of fixations to simulate (default: 4).
+
+        Returns:
+            Tuple of (x_hist, y_hist) arrays with pixel coordinates.
+            Each array has shape (num_fixations,).
+        """
+        h, w = initial_saliency.shape
+        ior_sigma = min(h, w) * 0.1  # 10% of image size
+
+        x_hist = []
+        y_hist = []
+        current_map = initial_saliency.copy().astype(np.float64)
+
+        # Pre-compute coordinate grids for IoR
+        y_grid, x_grid = np.ogrid[:h, :w]
+
+        for i in range(num_fixations):
+            # Check if there's enough saliency left
+            if current_map.max() < 0.01:
+                logger.debug(f"Stopping fixation simulation at {i+1}: low saliency")
+                break
+
+            # Winner-Take-All: find maximum saliency point
+            max_idx = current_map.argmax()
+            y_fix, x_fix = np.unravel_index(max_idx, current_map.shape)
+
+            x_hist.append(x_fix)
+            y_hist.append(y_fix)
+
+            # Inhibition of Return: suppress area around fixation
+            ior_mask = np.exp(
+                -((x_grid - x_fix)**2 + (y_grid - y_fix)**2) / (2 * ior_sigma**2)
+            )
+            current_map = current_map * (1 - ior_mask * 0.8)
+
+        logger.debug(f"Simulated {len(x_hist)} fixations for DeepGaze III history")
+        return np.array(x_hist), np.array(y_hist)
+
     async def predict(
         self,
         image_data: bytes,
@@ -279,7 +348,29 @@ class DeepGazeService:
 
         # Run inference
         with torch.no_grad():
-            log_density = self.model(tensor, center_bias)
+            if self.requires_fixation_history:
+                # DeepGaze III: Generate fixation history first
+                # 1. Get initial saliency from DeepGazeIIE
+                initial_log_density = self._initial_model(tensor, center_bias)
+                initial_saliency = np.exp(initial_log_density.cpu().numpy().squeeze())
+                initial_saliency = (initial_saliency - initial_saliency.min()) / (
+                    initial_saliency.max() - initial_saliency.min() + 1e-8
+                )
+
+                # 2. Simulate fixation history using WTA + IoR
+                x_hist, y_hist = self._simulate_fixation_history(initial_saliency, num_fixations=4)
+
+                # 3. Convert to tensors for DeepGaze III
+                # DeepGaze III expects x_hist, y_hist as tensors of shape (batch, num_fixations)
+                x_hist_tensor = torch.from_numpy(x_hist).unsqueeze(0).float().to(self.device)
+                y_hist_tensor = torch.from_numpy(y_hist).unsqueeze(0).float().to(self.device)
+
+                # 4. Run DeepGaze III with fixation history
+                log_density = self.model(tensor, center_bias, x_hist_tensor, y_hist_tensor)
+                logger.info(f"DeepGaze III prediction with {len(x_hist)} fixation history points")
+            else:
+                # DeepGazeIIE/II: No fixation history needed
+                log_density = self.model(tensor, center_bias)
 
         # Convert to numpy
         log_density_np = log_density.cpu().numpy().squeeze()

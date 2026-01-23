@@ -164,3 +164,106 @@ async def delete_reporte(reporte_id: str, user_id: str) -> bool:
     client = get_supabase_client()
     result = client.table(TABLE_REPORTES).delete().eq("id", reporte_id).eq("user_id", user_id).execute()
     return len(result.data) > 0 if result.data else False
+
+
+# ============================================
+# Storage (Bucket Privado)
+# ============================================
+BUCKET_ANALISIS = "us-analisis-images"
+SIGNED_URL_EXPIRY = 3600  # 1 hora
+
+
+def upload_image_to_storage(
+    image_data: bytes,
+    user_id: str,
+    analisis_id: str,
+    filename: str,
+    content_type: str = "image/png"
+) -> str:
+    """Upload image to private Supabase Storage.
+
+    Args:
+        image_data: Raw image bytes.
+        user_id: User ID for folder structure.
+        analisis_id: Analysis ID for folder structure.
+        filename: Filename (e.g., 'original.png', 'heatmap.png').
+        content_type: MIME type of the image.
+
+    Returns:
+        Storage path (not URL) - bucket is private.
+    """
+    client = get_supabase_client()
+    path = f"{user_id}/{analisis_id}/{filename}"
+
+    client.storage.from_(BUCKET_ANALISIS).upload(
+        path=path,
+        file=image_data,
+        file_options={"content-type": content_type}
+    )
+
+    return path
+
+
+def get_signed_url(storage_path: str, expires_in: int = SIGNED_URL_EXPIRY) -> Optional[str]:
+    """Generate signed URL for private file access.
+
+    Args:
+        storage_path: Path to file in storage bucket.
+        expires_in: URL expiration time in seconds (default: 1 hour).
+
+    Returns:
+        Signed URL string or None if failed.
+    """
+    client = get_supabase_client()
+    try:
+        response = client.storage.from_(BUCKET_ANALISIS).create_signed_url(
+            storage_path, expires_in
+        )
+        # Supabase SDK returns different key names depending on version
+        return response.get("signedURL") or response.get("signedUrl")
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Failed to create signed URL: {e}")
+        return None
+
+
+def get_signed_urls_for_analisis(user_id: str, analisis_id: str) -> dict:
+    """Get signed URLs for all images of an analysis.
+
+    Args:
+        user_id: User ID.
+        analisis_id: Analysis ID.
+
+    Returns:
+        Dict with signed URLs for 'original', 'heatmap', and 'overlay'.
+    """
+    paths = {
+        "original": f"{user_id}/{analisis_id}/original.png",
+        "heatmap": f"{user_id}/{analisis_id}/heatmap.png",
+        "overlay": f"{user_id}/{analisis_id}/heatmap_overlay.png",
+    }
+    return {key: get_signed_url(path) for key, path in paths.items()}
+
+
+def delete_analisis_images(user_id: str, analisis_id: str) -> bool:
+    """Delete all images for an analysis from storage.
+
+    Args:
+        user_id: User ID.
+        analisis_id: Analysis ID.
+
+    Returns:
+        True if successful, False otherwise.
+    """
+    client = get_supabase_client()
+    folder_path = f"{user_id}/{analisis_id}"
+    try:
+        files = client.storage.from_(BUCKET_ANALISIS).list(folder_path)
+        if files:
+            paths = [f"{folder_path}/{f['name']}" for f in files]
+            client.storage.from_(BUCKET_ANALISIS).remove(paths)
+        return True
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Failed to delete analysis images: {e}")
+        return False

@@ -285,6 +285,7 @@ export interface Analisis {
   clarity_score?: number;
   areas_interes?: AreaInteres[];
   insights?: string[];
+  modelo_usado?: string;
   created_at?: string;
 }
 

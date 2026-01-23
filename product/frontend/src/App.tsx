@@ -9,6 +9,7 @@ import { ArquetipoForm } from './pages/ArquetipoForm';
 import { ArquetipoDetail } from './pages/ArquetipoDetail';
 import { AnalisisPage } from './pages/Analisis';
 import { AnalisisForm } from './pages/AnalisisForm';
+import { AnalisisDetail } from './pages/AnalisisDetail';
 import { Interaccion } from './pages/Interaccion';
 import { Reportes } from './pages/Reportes';
 import ModelComparison from './pages/ModelComparison';
@@ -88,6 +89,7 @@ function AppRoutes() {
         <Route path="analisis" element={<AnalisisPage />} />
         <Route path="analisis/nuevo" element={<AnalisisForm />} />
         <Route path="analisis/comparar-modelos" element={<ModelComparison />} />
+        <Route path="analisis/:id" element={<AnalisisDetail />} />
         <Route path="interaccion" element={<Interaccion />} />
         <Route path="reportes" element={<Reportes />} />
       </Route>

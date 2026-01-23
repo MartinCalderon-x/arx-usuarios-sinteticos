@@ -127,9 +127,15 @@ async def analizar_imagen(file: UploadFile = File(...), user: dict = Depends(req
         logger.error(f"Storage upload failed: {e}")
         raise HTTPException(status_code=500, detail="Error al subir imagenes a storage")
 
-    # 4. Save to database (store paths, not URLs)
+    # 4. Generate signed URLs
+    signed_urls = supabase.get_signed_urls_for_analisis(user_id, analisis_id)
+
+    # 5. Save to database (store both paths and URLs for compatibility)
     data = {
         "id": analisis_id,
+        "imagen_url": signed_urls.get("original") or f"storage://{original_path}",
+        "heatmap_url": signed_urls.get("heatmap"),
+        "focus_map_url": signed_urls.get("overlay"),
         "imagen_path": original_path,
         "heatmap_path": heatmap_path,
         "focus_map_path": overlay_path,
@@ -143,9 +149,6 @@ async def analizar_imagen(file: UploadFile = File(...), user: dict = Depends(req
     result = await supabase.create_analisis(data, user_id)
     if not result:
         raise HTTPException(status_code=500, detail="Error al guardar analisis")
-
-    # 5. Generate signed URLs for response
-    signed_urls = supabase.get_signed_urls_for_analisis(user_id, analisis_id)
 
     return AnalisisResponse(
         id=analisis_id,

@@ -658,5 +658,172 @@ v1.0 ─────► v2.0 ─────► v2.1 ─────► v2.2 ─
 
 ---
 
+## Apéndice D: Plan para DeepGaze 90-92%
+
+### D.1 Contexto
+
+El modelo híbrido actual alcanza **57.9%** de correlación con DeepGaze IIE. Para alcanzar **90-92%** de precisión en predicción de atención visual, necesitamos mejorar el propio modelo DeepGaze, no solo el híbrido.
+
+### D.2 Estado del Arte en Saliency Prediction (2025-2026)
+
+| Modelo | Año | CC (MIT1003) | Arquitectura | Disponibilidad |
+|--------|-----|--------------|--------------|----------------|
+| DeepGaze IIE | 2021 | ~0.85 | VGG-19 + Readout | Open source |
+| DeepGaze III | 2022 | 0.87 | ResNet-50 + History | Open source |
+| TranSalNet | 2022 | 0.77 | CNN + Transformer | Open source |
+| MSI-Net | 2020 | ~0.80 | Encoder-Decoder | Open source |
+| UNETRSal | 2025 | ~0.82 | UNETR | Nuevo |
+| UNISAL | 2020 | 0.89 | Multi-domain | Open source |
+
+**Fuentes:**
+- [DeepGaze GitHub](https://github.com/matthias-k/DeepGaze)
+- [TranSalNet GitHub](https://github.com/LJOVO/TranSalNet)
+- [MSI-Net GitHub](https://github.com/alexanderkroner/saliency)
+
+### D.3 Opción Recomendada: Fine-Tuning con FiWI Dataset
+
+#### ¿Por qué FiWI?
+
+| Aspecto | FiWI | MIT1003 | SALICON |
+|---------|------|---------|---------|
+| Dominio | **Webpages** | Natural scenes | MS COCO |
+| Imágenes | 149 | 1003 | 10,000 |
+| Observadores | 11 | 15 | Crowdsourced |
+| Relevancia para UX | **Alta** | Media | Media |
+
+FiWI (Fixations in Webpage Images) es ideal porque:
+1. Contiene datos de eye-tracking reales en **páginas web**
+2. Nuestro caso de uso principal es análisis de UI/UX
+3. El modelo entrenado en FiWI será más preciso para diseños web
+
+#### Fuente del Dataset
+
+- **URL**: https://www-users.cse.umn.edu/~qzhao/webpage_saliency.html
+- **Tamaño**: 267MB (imágenes + datos de eye-tracking + código)
+- **Formato**: 149 webpages con fijaciones de 11 sujetos
+
+### D.4 Estrategia de Fine-Tuning
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│            Pipeline de Fine-Tuning DeepGaze                      │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐       │
+│  │  DeepGaze    │───▶│  Pre-train   │───▶│  Fine-tune   │       │
+│  │  IIE/III     │    │  (SALICON)   │    │  (FiWI)      │       │
+│  │  Pretrained  │    │  10K images  │    │  149 pages   │       │
+│  └──────────────┘    └──────────────┘    └──────┬───────┘       │
+│                                                  │               │
+│                                                  ▼               │
+│                                          ┌──────────────┐       │
+│                                          │  DeepGaze    │       │
+│                                          │  WebUI       │       │
+│                                          │  (Custom)    │       │
+│                                          └──────────────┘       │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### Pasos de Implementación
+
+**Fase 1: Preparación de Datos**
+```python
+# Estructura de datos FiWI esperada
+fiwi/
+├── images/           # 149 webpage screenshots
+├── fixations/        # Eye-tracking data por imagen
+└── saliency_maps/    # Ground truth heatmaps
+```
+
+**Fase 2: Adaptación del Modelo**
+```python
+# Pseudocódigo para fine-tuning
+import deepgaze_pytorch
+
+model = deepgaze_pytorch.DeepGazeIIE(pretrained=True)
+
+# Congelar backbone, solo entrenar readout
+for param in model.backbone.parameters():
+    param.requires_grad = False
+
+# Training loop
+optimizer = torch.optim.Adam(model.readout.parameters(), lr=1e-4)
+loss_fn = torch.nn.KLDivLoss()
+
+for epoch in range(100):
+    for images, fixation_maps in fiwi_dataloader:
+        pred = model(images, centerbias)
+        loss = loss_fn(pred, fixation_maps)
+        loss.backward()
+        optimizer.step()
+```
+
+**Fase 3: Evaluación**
+```python
+# Métricas objetivo
+metrics = evaluate_model(model, fiwi_test_set)
+assert metrics['CC'] > 0.90
+assert metrics['AUC'] > 0.92
+```
+
+### D.5 Recursos Requeridos
+
+| Recurso | Especificación | Costo Estimado |
+|---------|----------------|----------------|
+| GPU | NVIDIA T4/V100 (8GB+ VRAM) | ~$0.35-$2.50/hr |
+| Tiempo de entrenamiento | 2-4 horas | ~$10-20 |
+| Storage | 5GB para modelos + datos | Mínimo |
+| Cloud Run (inference) | 4GB RAM, 2 vCPU | ~$0.10/1K requests |
+
+### D.6 Alternativa: Usar TranSalNet
+
+Si el fine-tuning de DeepGaze resulta complejo, TranSalNet ofrece:
+
+**Ventajas:**
+- Arquitectura más moderna (CNN + Transformer)
+- Pipeline de entrenamiento documentado
+- Soporta múltiples datasets
+- CC de 0.77+ out-of-the-box
+
+**Implementación:**
+```python
+# Reemplazar DeepGaze por TranSalNet
+from transalnet import TranSalNet_Dense
+
+model = TranSalNet_Dense(pretrained=True)
+# Fine-tune con FiWI siguiendo documentación oficial
+```
+
+### D.7 Métricas Objetivo
+
+| Métrica | DeepGaze Actual | Objetivo Fine-Tuned | SOTA (2025) |
+|---------|-----------------|---------------------|-------------|
+| CC | 0.87 | **>0.90** | 0.89 |
+| AUC-Judd | 0.88 | **>0.92** | 0.91 |
+| NSS | 2.45 | >2.60 | 2.51 |
+| KL | 0.32 | <0.28 | 0.28 |
+
+### D.8 Timeline Sugerido
+
+```
+Semana 1: Descarga y análisis de FiWI dataset
+Semana 2: Setup de pipeline de entrenamiento
+Semana 3: Fine-tuning + experimentos
+Semana 4: Evaluación + deployment
+```
+
+### D.9 Conclusión
+
+Para alcanzar 90-92% de precisión en predicción de atención visual:
+
+1. **Corto plazo** (1-2 semanas): Fine-tune DeepGaze IIE con FiWI
+2. **Mediano plazo** (3-4 semanas): Evaluar TranSalNet como alternativa
+3. **Largo plazo**: Ensemble de modelos o modelo custom
+
+El fine-tuning con datos de UI/web específicos (FiWI) debería mejorar significativamente la precisión para nuestro caso de uso de análisis de diseños y páginas web.
+
+---
+
 *Documento generado para el proyecto Usuarios Sintéticos*
 *Última actualización: 2026-01-22*

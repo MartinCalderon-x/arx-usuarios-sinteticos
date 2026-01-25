@@ -76,6 +76,21 @@ export const arquetiposApi = {
     const response = await fetch(`${API_URL}/api/arquetipos/templates/`);
     return handleResponse<{ templates: ArquetipoTemplate[] }>(response);
   },
+
+  extractFromData: async (files: File[]) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const formData = new FormData();
+    files.forEach(file => formData.append('files', file));
+
+    const response = await fetch(`${API_URL}/api/arquetipos/extraer-desde-datos`, {
+      method: 'POST',
+      headers: {
+        ...(session?.access_token && { Authorization: `Bearer ${session.access_token}` }),
+      },
+      body: formData,
+    });
+    return handleResponse<ArquetipoExtraction>(response);
+  },
 };
 
 // Analisis
@@ -275,6 +290,27 @@ export interface ArquetipoTemplate {
   comportamiento?: string;
   frustraciones?: string[];
   objetivos?: string[];
+}
+
+export interface ArquetipoExtraction {
+  extraccion: {
+    nombre_sugerido: string;
+    descripcion: string;
+    edad_estimada?: number;
+    genero?: string;
+    ocupacion?: string;
+    contexto?: string;
+    comportamiento?: string;
+    frustraciones: string[];
+    objetivos: string[];
+    nivel_digital?: string;
+    industria?: string;
+  };
+  citas_relevantes: string[];
+  confianza: number;
+  archivos_procesados: number;
+  archivos_fallidos: number;
+  errores_archivos?: string[];
 }
 
 export interface Analisis {

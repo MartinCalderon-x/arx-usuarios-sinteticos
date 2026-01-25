@@ -1,10 +1,12 @@
 """Arquetipos (Synthetic Users) API routes."""
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
 from typing import Optional
 from pydantic import BaseModel
 
 from app.core.security import require_auth
 from app.services import supabase
+from app.services.document_processor import document_processor
+from app.services.gemini import GeminiArchetypeExtractor
 
 router = APIRouter()
 
@@ -256,6 +258,73 @@ async def list_templates():
         },
     ]
     return {"templates": templates}
+
+
+@router.post("/extraer-desde-datos")
+async def extract_archetype_from_data(
+    files: list[UploadFile] = File(..., description="Archivos a procesar (PDF, DOCX, TXT, CSV)"),
+    user: dict = Depends(require_auth)
+):
+    """
+    Extract archetype characteristics from uploaded documents using AI.
+
+    Supports: PDF, DOCX, TXT, CSV
+    Limits: Max 5 files, 10MB per file, 50MB total
+    """
+    # Validate number of files
+    if len(files) > document_processor.MAX_FILES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Máximo {document_processor.MAX_FILES} archivos permitidos"
+        )
+
+    if len(files) == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Se requiere al menos un archivo"
+        )
+
+    # Read and prepare files
+    file_data_list = []
+    for file in files:
+        content = await file.read()
+
+        # Check individual file size
+        if len(content) > document_processor.MAX_FILE_SIZE:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Archivo {file.filename} excede {document_processor.MAX_FILE_SIZE // (1024*1024)}MB"
+            )
+
+        file_data_list.append((content, file.content_type or "", file.filename or ""))
+
+    # Process documents
+    processing_result = await document_processor.process_multiple_files(file_data_list)
+
+    if processing_result["files_processed"] == 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No se pudo procesar ningún archivo: {', '.join(processing_result['errors'])}"
+        )
+
+    # Extract archetype using Gemini
+    extractor = GeminiArchetypeExtractor()
+    extraction_result = await extractor.extract_from_documents(processing_result["combined_text"])
+
+    if not extraction_result["success"]:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error al extraer características: {extraction_result['error']}"
+        )
+
+    return {
+        "extraccion": extraction_result["extraccion"],
+        "citas_relevantes": extraction_result["citas_relevantes"],
+        "confianza": extraction_result["confianza"],
+        "archivos_procesados": processing_result["files_processed"],
+        "archivos_fallidos": processing_result["files_failed"],
+        "errores_archivos": processing_result["errors"] if processing_result["errors"] else None
+    }
 
 
 @router.get("/")

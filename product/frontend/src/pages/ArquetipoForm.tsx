@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Save, Loader2, Plus, X } from 'lucide-react';
-import { arquetiposApi, type ArquetipoCreate, type ArquetipoTemplate } from '../lib/api';
+import { ArrowLeft, Save, Loader2, Plus, X, FileText, Users, PenLine } from 'lucide-react';
+import { arquetiposApi, type ArquetipoCreate, type ArquetipoTemplate, type ArquetipoExtraction } from '../lib/api';
+import { ArquetipoFromData } from '../components/ArquetipoFromData';
+
+type CreationMode = 'manual' | 'template' | 'data';
 
 const NIVELES_DIGITAL = [
   { value: 'bajo', label: 'Bajo' },
@@ -29,6 +32,8 @@ export function ArquetipoForm() {
   const [saving, setSaving] = useState(false);
   const [templates, setTemplates] = useState<ArquetipoTemplate[]>([]);
   const [selectedCategoria, setSelectedCategoria] = useState<string>('');
+  const [creationMode, setCreationMode] = useState<CreationMode>('manual');
+  const [extractedCitas, setExtractedCitas] = useState<string[]>([]);
   const [form, setForm] = useState<ArquetipoCreate>({
     nombre: '',
     descripcion: '',
@@ -98,6 +103,25 @@ export function ArquetipoForm() {
       frustraciones: template.frustraciones || [],
       objetivos: template.objetivos || [],
     }));
+    setExtractedCitas([]);
+  }
+
+  function handleDataExtracted(data: ArquetipoExtraction['extraccion'], citas: string[]) {
+    setForm(prev => ({
+      ...prev,
+      nombre: data.nombre_sugerido || prev.nombre,
+      descripcion: data.descripcion || prev.descripcion,
+      edad: data.edad_estimada || prev.edad,
+      genero: data.genero || prev.genero,
+      ocupacion: data.ocupacion || prev.ocupacion,
+      contexto: data.contexto || prev.contexto,
+      comportamiento: data.comportamiento || prev.comportamiento,
+      frustraciones: data.frustraciones.length > 0 ? data.frustraciones : prev.frustraciones,
+      objetivos: data.objetivos.length > 0 ? data.objetivos : prev.objetivos,
+      nivel_digital: data.nivel_digital || prev.nivel_digital,
+      industria: data.industria || prev.industria,
+    }));
+    setExtractedCitas(citas);
   }
 
   function addFrustracion() {
@@ -185,47 +209,106 @@ export function ArquetipoForm() {
         </div>
       </div>
 
-      {/* Templates */}
-      {!isEditing && templates.length > 0 && (
-        <div className="bg-bg-secondary rounded-xl p-4 border border-border">
-          <h3 className="text-sm font-medium text-text-secondary mb-3">Usar template</h3>
-
-          {/* Filtro por categoría */}
-          <div className="flex flex-wrap gap-2 mb-3">
+      {/* Creation Mode Selector */}
+      {!isEditing && (
+        <div className="bg-bg-secondary rounded-xl p-4 border border-border space-y-4">
+          {/* Mode tabs */}
+          <div className="flex gap-2">
             <button
-              onClick={() => setSelectedCategoria('')}
-              className={`px-3 py-1 text-xs rounded-full transition-colors ${
-                !selectedCategoria ? 'bg-primary text-white' : 'bg-bg-tertiary text-text-secondary hover:text-text-primary'
+              onClick={() => setCreationMode('manual')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                creationMode === 'manual'
+                  ? 'bg-primary text-white'
+                  : 'bg-bg-tertiary text-text-secondary hover:text-text-primary'
               }`}
             >
-              Todos
+              <PenLine size={16} />
+              Manual
             </button>
-            {categorias.map(cat => (
-              <button
-                key={cat}
-                onClick={() => setSelectedCategoria(cat)}
-                className={`px-3 py-1 text-xs rounded-full capitalize transition-colors ${
-                  selectedCategoria === cat ? 'bg-primary text-white' : 'bg-bg-tertiary text-text-secondary hover:text-text-primary'
-                }`}
-              >
-                {cat}
-              </button>
-            ))}
+            <button
+              onClick={() => setCreationMode('template')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                creationMode === 'template'
+                  ? 'bg-primary text-white'
+                  : 'bg-bg-tertiary text-text-secondary hover:text-text-primary'
+              }`}
+            >
+              <Users size={16} />
+              Desde plantilla
+            </button>
+            <button
+              onClick={() => setCreationMode('data')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                creationMode === 'data'
+                  ? 'bg-primary text-white'
+                  : 'bg-bg-tertiary text-text-secondary hover:text-text-primary'
+              }`}
+            >
+              <FileText size={16} />
+              Desde datos
+            </button>
           </div>
 
-          {/* Templates */}
-          <div className="flex flex-wrap gap-2">
-            {templatesFiltrados.map(template => (
-              <button
-                key={template.id}
-                onClick={() => applyTemplate(template)}
-                className="px-3 py-1.5 text-sm bg-bg-tertiary hover:bg-primary/10 hover:text-primary rounded-lg transition-colors text-left"
-                title={template.descripcion}
-              >
-                {template.nombre}
-              </button>
-            ))}
-          </div>
+          {/* Template selector */}
+          {creationMode === 'template' && templates.length > 0 && (
+            <div className="space-y-3">
+              <p className="text-sm text-text-tertiary">
+                Selecciona un arquetipo predefinido como base
+              </p>
+              {/* Filtro por categoría */}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => setSelectedCategoria('')}
+                  className={`px-3 py-1 text-xs rounded-full transition-colors ${
+                    !selectedCategoria ? 'bg-primary/20 text-primary' : 'bg-bg-tertiary text-text-secondary hover:text-text-primary'
+                  }`}
+                >
+                  Todos
+                </button>
+                {categorias.map(cat => (
+                  <button
+                    key={cat}
+                    onClick={() => setSelectedCategoria(cat)}
+                    className={`px-3 py-1 text-xs rounded-full capitalize transition-colors ${
+                      selectedCategoria === cat ? 'bg-primary/20 text-primary' : 'bg-bg-tertiary text-text-secondary hover:text-text-primary'
+                    }`}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+              {/* Templates */}
+              <div className="flex flex-wrap gap-2">
+                {templatesFiltrados.map(template => (
+                  <button
+                    key={template.id}
+                    onClick={() => applyTemplate(template)}
+                    className="px-3 py-1.5 text-sm bg-bg-tertiary hover:bg-primary/10 hover:text-primary rounded-lg transition-colors text-left"
+                    title={template.descripcion}
+                  >
+                    {template.nombre}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Data extraction */}
+          {creationMode === 'data' && (
+            <div className="space-y-3">
+              <p className="text-sm text-text-tertiary">
+                Sube documentos (transcripciones, entrevistas, encuestas) y la IA extraera las caracteristicas del arquetipo
+              </p>
+              <ArquetipoFromData onExtracted={handleDataExtracted} />
+            </div>
+          )}
+
+          {/* Manual mode hint */}
+          {creationMode === 'manual' && (
+            <p className="text-sm text-text-tertiary">
+              Completa el formulario manualmente con los datos del arquetipo
+            </p>
+          )}
         </div>
       )}
 
@@ -458,6 +541,26 @@ export function ArquetipoForm() {
             </div>
           </div>
         </div>
+
+        {/* Extracted quotes reference */}
+        {extractedCitas.length > 0 && (
+          <div className="border-t border-border pt-4">
+            <h3 className="text-lg font-medium text-text-primary mb-3">Citas de referencia</h3>
+            <p className="text-sm text-text-tertiary mb-3">
+              Citas extraidas de los documentos (solo referencia, no se guardan con el arquetipo)
+            </p>
+            <div className="space-y-2">
+              {extractedCitas.map((cita, i) => (
+                <blockquote
+                  key={i}
+                  className="pl-3 border-l-2 border-primary/30 text-sm text-text-secondary italic"
+                >
+                  "{cita}"
+                </blockquote>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="flex justify-end gap-3 pt-4 border-t border-border">
           <button

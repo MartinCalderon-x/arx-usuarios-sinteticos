@@ -131,6 +131,136 @@ class GeminiVisionService:
         }
 
 
+class GeminiArchetypeExtractor:
+    """Service for extracting archetype characteristics from documents using Gemini."""
+
+    def __init__(self):
+        self.client = get_gemini_client()
+        self.model = self.client.GenerativeModel(settings.gemini_model)
+
+    async def extract_from_documents(self, combined_text: str) -> dict:
+        """
+        Extract archetype characteristics from document text.
+
+        Args:
+            combined_text: Combined text from all uploaded documents
+
+        Returns:
+            dict with extracted archetype fields and confidence score
+        """
+        prompt = self._get_extraction_prompt(combined_text)
+
+        try:
+            response = self.model.generate_content(prompt)
+            return self._parse_extraction_response(response.text)
+        except Exception as e:
+            return self._default_extraction_response(str(e))
+
+    def _get_extraction_prompt(self, document_text: str) -> str:
+        """Build the prompt for archetype extraction."""
+        # Truncate if too long (Gemini has token limits)
+        max_chars = 100000
+        if len(document_text) > max_chars:
+            document_text = document_text[:max_chars] + "\n\n[... contenido truncado por límite de longitud ...]"
+
+        return f"""Analiza los siguientes documentos que contienen información sobre usuarios reales
+(pueden ser transcripciones de entrevistas, encuestas, videos, reportes de investigación UX, etc.).
+
+Tu tarea es extraer las características para crear un arquetipo/persona sintética que represente
+a este tipo de usuario.
+
+DOCUMENTOS A ANALIZAR:
+{document_text}
+
+INSTRUCCIONES:
+1. Identifica patrones comunes en comportamientos, frustraciones y objetivos
+2. Si hay múltiples usuarios, busca características compartidas para crear un arquetipo representativo
+3. Extrae citas textuales relevantes que capturen la voz del usuario
+4. Si algún campo no se puede inferir con confianza, usa null
+5. Calcula un nivel de confianza basado en cuánta información había disponible
+
+RESPONDE EN JSON CON ESTA ESTRUCTURA EXACTA:
+{{
+    "nombre_sugerido": "Nombre descriptivo para el arquetipo (ej: 'Usuario Paciente Tech-Savvy')",
+    "descripcion": "Descripción detallada de 2-3 oraciones",
+    "edad_estimada": 35,
+    "genero": "Masculino/Femenino/No especificado",
+    "ocupacion": "Ocupación principal o rol",
+    "contexto": "Contexto de uso del producto/servicio analizado",
+    "comportamiento": "Patrones de comportamiento observados en una oración",
+    "frustraciones": ["Frustración 1", "Frustración 2", "Frustración 3"],
+    "objetivos": ["Objetivo 1", "Objetivo 2", "Objetivo 3"],
+    "nivel_digital": "bajo/medio/alto",
+    "industria": "tech/salud/retail/finanzas/manufactura/educacion/servicios/otro",
+    "citas_relevantes": ["Cita textual 1", "Cita textual 2"],
+    "confianza": 0.85
+}}
+
+NOTAS:
+- frustraciones y objetivos deben tener entre 2 y 5 elementos cada uno
+- citas_relevantes debe tener entre 2 y 5 citas textuales del documento original
+- confianza es un número entre 0 y 1 (0.8+ = alta, 0.6-0.8 = media, <0.6 = baja)
+- Si no hay suficiente información, indica confianza baja
+
+Responde SOLO con JSON válido, sin texto adicional."""
+
+    def _parse_extraction_response(self, text: str) -> dict:
+        """Parse Gemini response for archetype extraction."""
+        try:
+            # Remove markdown code blocks if present
+            if "```json" in text:
+                text = text.split("```json")[1].split("```")[0]
+            elif "```" in text:
+                text = text.split("```")[1].split("```")[0]
+
+            result = json.loads(text.strip())
+
+            # Validate and clean result
+            return {
+                "extraccion": {
+                    "nombre_sugerido": result.get("nombre_sugerido", "Usuario Sintético"),
+                    "descripcion": result.get("descripcion", ""),
+                    "edad_estimada": result.get("edad_estimada"),
+                    "genero": result.get("genero"),
+                    "ocupacion": result.get("ocupacion"),
+                    "contexto": result.get("contexto"),
+                    "comportamiento": result.get("comportamiento"),
+                    "frustraciones": result.get("frustraciones", []),
+                    "objetivos": result.get("objetivos", []),
+                    "nivel_digital": result.get("nivel_digital"),
+                    "industria": result.get("industria"),
+                },
+                "citas_relevantes": result.get("citas_relevantes", []),
+                "confianza": result.get("confianza", 0.5),
+                "success": True,
+                "error": None
+            }
+        except json.JSONDecodeError as e:
+            return self._default_extraction_response(f"Error parsing JSON: {str(e)}")
+
+    def _default_extraction_response(self, error: Optional[str] = None) -> dict:
+        """Return default extraction response structure."""
+        return {
+            "extraccion": {
+                "nombre_sugerido": "",
+                "descripcion": "",
+                "edad_estimada": None,
+                "genero": None,
+                "ocupacion": None,
+                "contexto": None,
+                "comportamiento": None,
+                "frustraciones": [],
+                "objetivos": [],
+                "nivel_digital": None,
+                "industria": None,
+            },
+            "citas_relevantes": [],
+            "confianza": 0,
+            "success": False,
+            "error": error
+        }
+
+
 class GeminiChatService:
     """Service for synthetic user chat using Gemini."""
 

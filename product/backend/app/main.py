@@ -5,7 +5,7 @@ from fastapi.responses import JSONResponse
 import traceback
 
 from app.core.config import get_settings
-from app.api import arquetipos, analisis, interaccion, reportes
+from app.api import arquetipos, analisis, interaccion, reportes, flujos
 
 settings = get_settings()
 
@@ -47,6 +47,7 @@ app.include_router(arquetipos.router, prefix="/api/arquetipos", tags=["arquetipo
 app.include_router(analisis.router, prefix="/api/analisis", tags=["analisis"])
 app.include_router(interaccion.router, prefix="/api/interaccion", tags=["interaccion"])
 app.include_router(reportes.router, prefix="/api/reportes", tags=["reportes"])
+app.include_router(flujos.router, prefix="/api/flujos", tags=["flujos"])
 
 
 @app.get("/")

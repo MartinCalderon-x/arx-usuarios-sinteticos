@@ -431,3 +431,168 @@ export interface ModelComparisonResponse {
   ml_service_available: boolean;
   total_time_ms: number;
 }
+
+// ============================================
+// Flujos
+// ============================================
+
+export const flujosApi = {
+  list: async (estado?: string) => {
+    const headers = await getAuthHeaders();
+    const url = estado
+      ? `${API_URL}/api/flujos/?estado=${estado}`
+      : `${API_URL}/api/flujos/`;
+    const response = await fetch(url, { headers });
+    return handleResponse<{ flujos: Flujo[]; total: number }>(response);
+  },
+
+  get: async (id: string) => {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/flujos/${id}`, { headers });
+    return handleResponse<FlujoDetail>(response);
+  },
+
+  create: async (data: FlujoCreate) => {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/flujos/`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(cleanEmptyValues(data)),
+    });
+    return handleResponse<Flujo>(response);
+  },
+
+  update: async (id: string, data: FlujoUpdate) => {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/flujos/${id}`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify(cleanEmptyValues(data)),
+    });
+    return handleResponse<Flujo>(response);
+  },
+
+  delete: async (id: string) => {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/flujos/${id}`, {
+      method: 'DELETE',
+      headers,
+    });
+    return handleResponse<{ message: string }>(response);
+  },
+
+  // Pantallas
+  uploadPantalla: async (flujoId: string, file: File, titulo?: string) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const formData = new FormData();
+    formData.append('file', file);
+    if (titulo) {
+      formData.append('titulo', titulo);
+    }
+
+    const response = await fetch(`${API_URL}/api/flujos/${flujoId}/pantallas/upload`, {
+      method: 'POST',
+      headers: {
+        ...(session?.access_token && { Authorization: `Bearer ${session.access_token}` }),
+      },
+      body: formData,
+    });
+    return handleResponse<Pantalla>(response);
+  },
+
+  addPantallaFromUrl: async (flujoId: string, url: string, titulo?: string) => {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/flujos/${flujoId}/pantallas/url`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ url, titulo }),
+    });
+    return handleResponse<Pantalla>(response);
+  },
+
+  getPantalla: async (flujoId: string, pantallaId: string) => {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/flujos/${flujoId}/pantallas/${pantallaId}`, { headers });
+    return handleResponse<Pantalla>(response);
+  },
+
+  deletePantalla: async (flujoId: string, pantallaId: string) => {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/flujos/${flujoId}/pantallas/${pantallaId}`, {
+      method: 'DELETE',
+      headers,
+    });
+    return handleResponse<{ message: string }>(response);
+  },
+
+  reordenarPantallas: async (flujoId: string, ordenIds: string[]) => {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/flujos/${flujoId}/pantallas/reordenar`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ orden_ids: ordenIds }),
+    });
+    return handleResponse<{ message: string }>(response);
+  },
+};
+
+// Flujos Types
+export interface Flujo {
+  id: string;
+  nombre: string;
+  descripcion?: string;
+  url_inicial?: string;
+  estado: string;
+  total_pantallas: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface FlujoCreate {
+  nombre: string;
+  descripcion?: string;
+  url_inicial?: string;
+}
+
+export interface FlujoUpdate {
+  nombre?: string;
+  descripcion?: string;
+  url_inicial?: string;
+  estado?: string;
+  configuracion?: Record<string, unknown>;
+}
+
+export interface FlujoDetail extends Flujo {
+  pantallas: Pantalla[];
+}
+
+export interface Pantalla {
+  id: string;
+  flujo_id: string;
+  orden: number;
+  origen: 'upload' | 'url' | 'figma';
+  url?: string;
+  titulo?: string;
+  screenshot_url?: string;
+  heatmap_url?: string;
+  overlay_url?: string;
+  clarity_score?: number;
+  areas_interes?: AreaInteres[];
+  insights?: string[];
+  modelo_usado?: string;
+  elementos_clickeables?: ElementoClickeable[];
+  created_at?: string;
+}
+
+export interface ElementoClickeable {
+  id: string;
+  tipo: 'link' | 'button';
+  texto?: string;
+  href?: string;
+  bbox: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+}

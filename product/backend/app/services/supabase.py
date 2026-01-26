@@ -12,6 +12,9 @@ TABLE_ANALISIS = "us_analisis"
 TABLE_SESIONES = "us_sesiones"
 TABLE_MENSAJES = "us_mensajes"
 TABLE_REPORTES = "us_reportes"
+TABLE_FLUJOS = "us_flujos"
+TABLE_PANTALLAS = "us_pantallas"
+TABLE_TRANSICIONES = "us_transiciones"
 
 
 @lru_cache
@@ -267,3 +270,209 @@ def delete_analisis_images(user_id: str, analisis_id: str) -> bool:
         import logging
         logging.getLogger(__name__).error(f"Failed to delete analysis images: {e}")
         return False
+
+
+# ============================================
+# Flujos
+# ============================================
+BUCKET_FLUJOS = "us-flujos-images"
+
+
+async def create_flujo(data: dict, user_id: str) -> dict:
+    """Create a new flow in the database."""
+    client = get_supabase_client()
+    data["user_id"] = user_id
+    result = client.table(TABLE_FLUJOS).insert(data).execute()
+    return result.data[0] if result.data else None
+
+
+async def get_flujo(flujo_id: str, user_id: str) -> Optional[dict]:
+    """Get a flow by ID with its screens (filtered by user)."""
+    client = get_supabase_client()
+    result = client.table(TABLE_FLUJOS).select("*").eq("id", flujo_id).eq("user_id", user_id).execute()
+    if not result.data:
+        return None
+
+    flujo = result.data[0]
+
+    # Get all screens for this flow
+    pantallas_result = client.table(TABLE_PANTALLAS).select("*").eq("flujo_id", flujo_id).order("orden").execute()
+    flujo["pantallas"] = pantallas_result.data or []
+
+    return flujo
+
+
+async def list_flujos(user_id: str, estado: Optional[str] = None, limit: int = 50, offset: int = 0) -> tuple[list[dict], int]:
+    """List all flows for a user."""
+    client = get_supabase_client()
+    query = client.table(TABLE_FLUJOS).select("*", count="exact").eq("user_id", user_id)
+    if estado:
+        query = query.eq("estado", estado)
+    result = query.range(offset, offset + limit - 1).order("created_at", desc=True).execute()
+    return result.data, result.count or 0
+
+
+async def update_flujo(flujo_id: str, data: dict, user_id: str) -> Optional[dict]:
+    """Update a flow (filtered by user)."""
+    client = get_supabase_client()
+    result = client.table(TABLE_FLUJOS).update(data).eq("id", flujo_id).eq("user_id", user_id).execute()
+    return result.data[0] if result.data else None
+
+
+async def delete_flujo(flujo_id: str, user_id: str) -> bool:
+    """Delete a flow and all its screens (filtered by user)."""
+    client = get_supabase_client()
+    # Delete images from storage first
+    pantallas = client.table(TABLE_PANTALLAS).select("id").eq("flujo_id", flujo_id).execute()
+    if pantallas.data:
+        for pantalla in pantallas.data:
+            delete_pantalla_images(user_id, flujo_id, pantalla["id"])
+
+    # Delete flow (cascade will delete pantallas and transiciones)
+    result = client.table(TABLE_FLUJOS).delete().eq("id", flujo_id).eq("user_id", user_id).execute()
+    return len(result.data) > 0 if result.data else False
+
+
+# ============================================
+# Pantallas
+# ============================================
+async def create_pantalla(flujo_id: str, data: dict, user_id: str) -> dict:
+    """Create a new screen in a flow."""
+    client = get_supabase_client()
+    data["flujo_id"] = flujo_id
+    data["user_id"] = user_id
+
+    # Get next order number if not specified
+    if "orden" not in data:
+        max_orden = client.table(TABLE_PANTALLAS).select("orden").eq("flujo_id", flujo_id).order("orden", desc=True).limit(1).execute()
+        data["orden"] = (max_orden.data[0]["orden"] + 1) if max_orden.data else 1
+
+    result = client.table(TABLE_PANTALLAS).insert(data).execute()
+    return result.data[0] if result.data else None
+
+
+async def get_pantalla(pantalla_id: str, user_id: str) -> Optional[dict]:
+    """Get a screen by ID (filtered by user)."""
+    client = get_supabase_client()
+    result = client.table(TABLE_PANTALLAS).select("*").eq("id", pantalla_id).eq("user_id", user_id).execute()
+    return result.data[0] if result.data else None
+
+
+async def update_pantalla(pantalla_id: str, data: dict, user_id: str) -> Optional[dict]:
+    """Update a screen (filtered by user)."""
+    client = get_supabase_client()
+    result = client.table(TABLE_PANTALLAS).update(data).eq("id", pantalla_id).eq("user_id", user_id).execute()
+    return result.data[0] if result.data else None
+
+
+async def delete_pantalla(pantalla_id: str, user_id: str) -> bool:
+    """Delete a screen (filtered by user)."""
+    client = get_supabase_client()
+    # Get pantalla info for storage cleanup
+    pantalla = client.table(TABLE_PANTALLAS).select("flujo_id").eq("id", pantalla_id).eq("user_id", user_id).execute()
+    if pantalla.data:
+        flujo_id = pantalla.data[0]["flujo_id"]
+        delete_pantalla_images(user_id, flujo_id, pantalla_id)
+
+    result = client.table(TABLE_PANTALLAS).delete().eq("id", pantalla_id).eq("user_id", user_id).execute()
+    return len(result.data) > 0 if result.data else False
+
+
+async def reordenar_pantallas(flujo_id: str, orden_ids: list[str], user_id: str) -> bool:
+    """Reorder screens in a flow."""
+    client = get_supabase_client()
+    # Verify flow ownership
+    flujo = client.table(TABLE_FLUJOS).select("id").eq("id", flujo_id).eq("user_id", user_id).execute()
+    if not flujo.data:
+        return False
+
+    # Update order for each screen
+    for idx, pantalla_id in enumerate(orden_ids, start=1):
+        client.table(TABLE_PANTALLAS).update({"orden": idx}).eq("id", pantalla_id).eq("flujo_id", flujo_id).execute()
+
+    return True
+
+
+# ============================================
+# Storage for Flujos
+# ============================================
+def upload_pantalla_image(
+    image_data: bytes,
+    user_id: str,
+    flujo_id: str,
+    pantalla_id: str,
+    filename: str,
+    content_type: str = "image/png"
+) -> str:
+    """Upload screen image to storage.
+
+    Path structure: {user_id}/{flujo_id}/{pantalla_id}/{filename}
+    """
+    client = get_supabase_client()
+    path = f"{user_id}/{flujo_id}/{pantalla_id}/{filename}"
+
+    client.storage.from_(BUCKET_FLUJOS).upload(
+        path=path,
+        file=image_data,
+        file_options={"content-type": content_type}
+    )
+
+    return path
+
+
+def get_pantalla_signed_url(storage_path: str, expires_in: int = SIGNED_URL_EXPIRY) -> Optional[str]:
+    """Generate signed URL for private pantalla file access."""
+    client = get_supabase_client()
+    try:
+        response = client.storage.from_(BUCKET_FLUJOS).create_signed_url(
+            storage_path, expires_in
+        )
+        return response.get("signedURL") or response.get("signedUrl")
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Failed to create signed URL for pantalla: {e}")
+        return None
+
+
+def get_signed_urls_for_pantalla(user_id: str, flujo_id: str, pantalla_id: str) -> dict:
+    """Get signed URLs for all images of a screen."""
+    paths = {
+        "screenshot": f"{user_id}/{flujo_id}/{pantalla_id}/screenshot.png",
+        "heatmap": f"{user_id}/{flujo_id}/{pantalla_id}/heatmap.png",
+        "overlay": f"{user_id}/{flujo_id}/{pantalla_id}/overlay.png",
+    }
+    return {key: get_pantalla_signed_url(path) for key, path in paths.items()}
+
+
+def delete_pantalla_images(user_id: str, flujo_id: str, pantalla_id: str) -> bool:
+    """Delete all images for a screen from storage."""
+    client = get_supabase_client()
+    folder_path = f"{user_id}/{flujo_id}/{pantalla_id}"
+    try:
+        files = client.storage.from_(BUCKET_FLUJOS).list(folder_path)
+        if files:
+            paths = [f"{folder_path}/{f['name']}" for f in files]
+            client.storage.from_(BUCKET_FLUJOS).remove(paths)
+        return True
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Failed to delete pantalla images: {e}")
+        return False
+
+
+# ============================================
+# Transiciones
+# ============================================
+async def create_transicion(flujo_id: str, data: dict) -> dict:
+    """Create a transition between screens."""
+    client = get_supabase_client()
+    data["flujo_id"] = flujo_id
+    result = client.table(TABLE_TRANSICIONES).insert(data).execute()
+    return result.data[0] if result.data else None
+
+
+async def get_transiciones_flujo(flujo_id: str) -> list[dict]:
+    """Get all transitions for a flow."""
+    client = get_supabase_client()
+    result = client.table(TABLE_TRANSICIONES).select("*").eq("flujo_id", flujo_id).execute()
+    return result.data or []

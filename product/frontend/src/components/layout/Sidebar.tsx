@@ -8,7 +8,8 @@ import {
   LogOut,
   ChevronLeft,
   ChevronRight,
-  GitCompare
+  GitCompare,
+  Layers
 } from 'lucide-react';
 import { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
@@ -19,6 +20,7 @@ const navItems = [
   { to: '/arquetipos', icon: Users, label: 'Arquetipos' },
   { to: '/analisis', icon: Eye, label: 'Analisis Visual' },
   { to: '/analisis/comparar-modelos', icon: GitCompare, label: 'Comparar Modelos' },
+  { to: '/flujos', icon: Layers, label: 'Flujos' },
   { to: '/interaccion', icon: MessageSquare, label: 'Interaccion' },
   { to: '/reportes', icon: FileText, label: 'Reportes' },
 ];

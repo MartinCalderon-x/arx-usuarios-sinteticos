@@ -13,6 +13,9 @@ import { AnalisisDetail } from './pages/AnalisisDetail';
 import { Interaccion } from './pages/Interaccion';
 import { Reportes } from './pages/Reportes';
 import ModelComparison from './pages/ModelComparison';
+import { Flujos } from './pages/Flujos';
+import { FlujoForm } from './pages/FlujoForm';
+import { FlujoDetail } from './pages/FlujoDetail';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -92,6 +95,10 @@ function AppRoutes() {
         <Route path="analisis/:id" element={<AnalisisDetail />} />
         <Route path="interaccion" element={<Interaccion />} />
         <Route path="reportes" element={<Reportes />} />
+        <Route path="flujos" element={<Flujos />} />
+        <Route path="flujos/nuevo" element={<FlujoForm />} />
+        <Route path="flujos/:id" element={<FlujoDetail />} />
+        <Route path="flujos/:id/editar" element={<FlujoForm />} />
       </Route>
 
       {/* Catch all */}

@@ -15,6 +15,7 @@ from app.core.config import get_settings
 from app.services import supabase
 from app.services.gemini import GeminiVisionService
 from app.services.heatmap import HybridHeatmapService
+from app.services.web_capture import get_web_capture_service
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -319,32 +320,145 @@ async def add_pantalla_from_url(
     request: PantallaURLRequest,
     user: dict = Depends(require_auth)
 ):
-    """Add a screen by capturing a URL (requires web-capture-service).
+    """Add a screen by capturing a screenshot from a URL.
 
-    Note: This is a placeholder that will be implemented when the
-    web-capture-service is deployed. For now, it returns an error
-    indicating the service is not available.
+    This endpoint:
+    1. Uses Playwright to capture a screenshot of the URL
+    2. Analyzes with Gemini Vision for AOI
+    3. Generates heatmap with DeepGaze/Hybrid
+    4. Saves screen metadata to database
     """
     user_id = get_user_id(user)
+    pantalla_id = str(uuid.uuid4())
 
-    # Verify flow exists
+    # Verify flow exists and belongs to user
     flujo = await supabase.get_flujo(flujo_id, user_id)
     if not flujo:
         raise HTTPException(status_code=404, detail="Flujo no encontrado")
 
-    # Check if web capture service is configured
-    web_capture_url = getattr(settings, 'web_capture_service_url', None)
-    if not web_capture_url:
+    # 1. Capture screenshot from URL
+    try:
+        web_capture = get_web_capture_service()
+        content = await web_capture.capture_screenshot(
+            url=request.url,
+            viewport_width=1440,
+            viewport_height=900,
+            wait_for_load=True,
+        )
+        content_type = "image/png"
+        logger.info(f"Captured screenshot from {request.url}")
+    except Exception as e:
+        logger.error(f"Failed to capture URL {request.url}: {e}")
         raise HTTPException(
-            status_code=503,
-            detail="Servicio de captura web no disponible. Use la opcion de subir imagen."
+            status_code=400,
+            detail=f"No se pudo capturar la URL: {str(e)}"
         )
 
-    # TODO: Implement web capture when service is deployed
-    # This will call the web-capture-service to screenshot the URL
-    raise HTTPException(
-        status_code=501,
-        detail="Captura de URL no implementada aun. Use la opcion de subir imagen."
+    # 2. Analyze with Gemini Vision
+    try:
+        analysis_result = await gemini_service.analyze_image(content, content_type)
+        aoi_data = analysis_result.get("areas_interes", [])
+    except Exception as e:
+        logger.error(f"Gemini analysis failed: {e}")
+        analysis_result = {}
+        aoi_data = []
+
+    # 3. Generate heatmap
+    heatmap_bytes = None
+    overlay_bytes = None
+    modelo_usado = "hybrid_v2_ittikoch"
+
+    # Try ML Service first
+    if settings.ml_service_enabled:
+        try:
+            async with httpx.AsyncClient(timeout=settings.ml_service_timeout) as client:
+                response = await client.post(
+                    f"{settings.ml_service_url}/predict",
+                    files={"file": ("screenshot.png", content, content_type)},
+                    params={"overlay": True, "colormap": "jet"},
+                )
+                if response.status_code == 200:
+                    ml_result = response.json()
+                    heatmap_bytes = base64.b64decode(ml_result["heatmap_base64"])
+                    if ml_result.get("heatmap_overlay_base64"):
+                        overlay_bytes = base64.b64decode(ml_result["heatmap_overlay_base64"])
+                    modelo_usado = ml_result.get("metadata", {}).get("model", "deepgaze3")
+        except Exception as e:
+            logger.warning(f"ML-Service unavailable: {e}")
+
+    # Fallback to hybrid
+    if heatmap_bytes is None:
+        try:
+            image = Image.open(io.BytesIO(content)).convert("RGB")
+            image_array = np.array(image)
+            heatmap, _ = hybrid_service.generate_hybrid(
+                image_array, aoi_data, include_center_bias=True, include_bottom_up=True
+            )
+            heatmap_bytes = base64.b64decode(hybrid_service.heatmap_to_base64(heatmap, colormap="jet"))
+            overlay_bytes = base64.b64decode(
+                hybrid_service.heatmap_to_base64(heatmap, colormap="jet", original_image=image, alpha=0.5)
+            )
+        except Exception as e:
+            logger.error(f"Hybrid heatmap generation failed: {e}")
+            heatmap_bytes = None
+            overlay_bytes = None
+
+    # 4. Upload to storage
+    try:
+        screenshot_path = supabase.upload_pantalla_image(
+            content, user_id, flujo_id, pantalla_id, "screenshot.png", content_type
+        )
+        heatmap_path = None
+        overlay_path = None
+
+        if heatmap_bytes:
+            heatmap_path = supabase.upload_pantalla_image(
+                heatmap_bytes, user_id, flujo_id, pantalla_id, "heatmap.png"
+            )
+        if overlay_bytes:
+            overlay_path = supabase.upload_pantalla_image(
+                overlay_bytes, user_id, flujo_id, pantalla_id, "overlay.png"
+            )
+    except Exception as e:
+        logger.error(f"Storage upload failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al guardar imagen: {e}")
+
+    # 5. Save to database
+    pantalla_data = {
+        "id": pantalla_id,
+        "flujo_id": flujo_id,
+        "user_id": user_id,
+        "titulo": request.url,  # Use URL as title
+        "url": request.url,
+        "orden": await supabase.get_next_pantalla_orden(flujo_id),
+        "screenshot_path": screenshot_path,
+        "heatmap_path": heatmap_path,
+        "overlay_path": overlay_path,
+        "areas_interes": aoi_data,
+        "insights": analysis_result.get("insights", []),
+        "modelo_usado": modelo_usado,
+    }
+
+    result = await supabase.create_pantalla(pantalla_data)
+    if not result:
+        raise HTTPException(status_code=500, detail="Error al crear pantalla")
+
+    # Generate signed URLs for response
+    signed_urls = supabase.get_signed_urls_for_pantalla(user_id, flujo_id, pantalla_id)
+
+    return PantallaResponse(
+        id=result["id"],
+        flujo_id=result["flujo_id"],
+        titulo=result.get("titulo"),
+        url=result.get("url"),
+        orden=result.get("orden", 0),
+        screenshot_url=signed_urls.get("screenshot"),
+        heatmap_url=signed_urls.get("heatmap"),
+        overlay_url=signed_urls.get("overlay"),
+        areas_interes=result.get("areas_interes", []),
+        insights=analysis_result.get("insights", []),
+        modelo_usado=modelo_usado,
+        created_at=result.get("created_at"),
     )
 
 

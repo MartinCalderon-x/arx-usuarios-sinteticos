@@ -25,6 +25,7 @@ import { ElementOverlay } from '../components/flujos/ElementOverlay';
 
 type ViewMode = 'screenshot' | 'heatmap' | 'overlay' | 'elements';
 type TabMode = 'pantallas' | 'misiones';
+type AddMode = 'upload' | 'url';
 
 export function FlujoDetail() {
   const { id } = useParams();
@@ -38,6 +39,9 @@ export function FlujoDetail() {
   const [uploading, setUploading] = useState(false);
   const [activeTab, setActiveTab] = useState<TabMode>('pantallas');
   const [detectingElements, setDetectingElements] = useState(false);
+  const [addMode, setAddMode] = useState<AddMode>('upload');
+  const [urlInput, setUrlInput] = useState('');
+  const [capturingUrl, setCapturingUrl] = useState(false);
 
   useEffect(() => {
     if (id) loadFlujo(id);
@@ -97,6 +101,29 @@ export function FlujoDetail() {
     e.preventDefault();
     handleFileUpload(e.dataTransfer.files);
   }, [id]);
+
+  async function handleUrlCapture() {
+    if (!urlInput.trim() || !id) return;
+
+    // Validate URL
+    let url = urlInput.trim();
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      url = 'https://' + url;
+    }
+
+    setCapturingUrl(true);
+    try {
+      await flujosApi.addPantallaFromUrl(id, url);
+      await loadFlujo(id);
+      setShowAddModal(false);
+      setUrlInput('');
+    } catch (error) {
+      console.error('Error capturing URL:', error);
+      alert('Error al capturar la URL. Verifica que sea accesible.');
+    } finally {
+      setCapturingUrl(false);
+    }
+  }
 
   async function handleDetectElements() {
     if (!selectedPantalla || !id) return;
@@ -540,47 +567,111 @@ export function FlujoDetail() {
             <div className="flex items-center justify-between p-4 border-b border-border">
               <h3 className="text-lg font-semibold text-text-primary">Agregar pantalla</h3>
               <button
-                onClick={() => setShowAddModal(false)}
+                onClick={() => {
+                  setShowAddModal(false);
+                  setUrlInput('');
+                  setAddMode('upload');
+                }}
                 className="p-1.5 text-text-muted hover:text-text-primary hover:bg-bg-tertiary rounded-lg transition-colors"
               >
                 <X size={18} />
               </button>
             </div>
-            <div className="p-4">
-              {/* Upload area */}
-              <div
-                onDrop={handleDrop}
-                onDragOver={(e) => e.preventDefault()}
-                className="border-2 border-dashed border-border hover:border-primary rounded-xl p-8 text-center transition-colors cursor-pointer"
-                onClick={() => document.getElementById('file-upload')?.click()}
-              >
-                {uploading ? (
-                  <Loader2 size={32} className="mx-auto animate-spin text-primary mb-2" />
-                ) : (
-                  <Upload size={32} className="mx-auto text-text-muted mb-2" />
-                )}
-                <p className="text-text-primary font-medium mb-1">
-                  {uploading ? 'Subiendo...' : 'Arrastra una imagen aqui'}
-                </p>
-                <p className="text-sm text-text-muted">
-                  o haz click para seleccionar
-                </p>
-                <input
-                  id="file-upload"
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  onChange={(e) => handleFileUpload(e.target.files)}
-                  className="hidden"
-                />
-              </div>
 
-              {/* URL option - disabled for now */}
-              <div className="mt-4 pt-4 border-t border-border">
-                <p className="text-sm text-text-muted text-center">
-                  La captura desde URL estara disponible proximamente
-                </p>
-              </div>
+            {/* Mode tabs */}
+            <div className="flex border-b border-border">
+              <button
+                onClick={() => setAddMode('upload')}
+                className={`flex-1 flex items-center justify-center gap-2 py-3 text-sm font-medium transition-colors ${
+                  addMode === 'upload'
+                    ? 'text-primary border-b-2 border-primary'
+                    : 'text-text-secondary hover:text-text-primary'
+                }`}
+              >
+                <Upload size={16} />
+                Subir imagen
+              </button>
+              <button
+                onClick={() => setAddMode('url')}
+                className={`flex-1 flex items-center justify-center gap-2 py-3 text-sm font-medium transition-colors ${
+                  addMode === 'url'
+                    ? 'text-primary border-b-2 border-primary'
+                    : 'text-text-secondary hover:text-text-primary'
+                }`}
+              >
+                <LinkIcon size={16} />
+                Capturar URL
+              </button>
+            </div>
+
+            <div className="p-4">
+              {addMode === 'upload' ? (
+                /* Upload area */
+                <div
+                  onDrop={handleDrop}
+                  onDragOver={(e) => e.preventDefault()}
+                  className="border-2 border-dashed border-border hover:border-primary rounded-xl p-8 text-center transition-colors cursor-pointer"
+                  onClick={() => document.getElementById('file-upload')?.click()}
+                >
+                  {uploading ? (
+                    <Loader2 size={32} className="mx-auto animate-spin text-primary mb-2" />
+                  ) : (
+                    <Upload size={32} className="mx-auto text-text-muted mb-2" />
+                  )}
+                  <p className="text-text-primary font-medium mb-1">
+                    {uploading ? 'Subiendo...' : 'Arrastra una imagen aqui'}
+                  </p>
+                  <p className="text-sm text-text-muted">
+                    o haz click para seleccionar
+                  </p>
+                  <input
+                    id="file-upload"
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={(e) => handleFileUpload(e.target.files)}
+                    className="hidden"
+                  />
+                </div>
+              ) : (
+                /* URL capture */
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-text-primary mb-2">
+                      URL de la pagina
+                    </label>
+                    <input
+                      type="url"
+                      value={urlInput}
+                      onChange={(e) => setUrlInput(e.target.value)}
+                      placeholder="https://ejemplo.com"
+                      className="w-full px-3 py-2 bg-bg-tertiary border border-border rounded-lg text-text-primary placeholder:text-text-muted focus:outline-none focus:border-primary"
+                      disabled={capturingUrl}
+                    />
+                  </div>
+                  <p className="text-xs text-text-muted">
+                    Se capturara una imagen de la pagina en viewport de 1440x900px.
+                    Asegurate que la URL sea publica y accesible.
+                  </p>
+                  <button
+                    onClick={handleUrlCapture}
+                    disabled={!urlInput.trim() || capturingUrl}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-primary hover:bg-primary-dark text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {capturingUrl ? (
+                      <>
+                        <Loader2 size={18} className="animate-spin" />
+                        Capturando...
+                      </>
+                    ) : (
+                      <>
+                        <LinkIcon size={18} />
+                        Capturar pantalla
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>

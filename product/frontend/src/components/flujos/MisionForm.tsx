@@ -123,40 +123,50 @@ export function MisionForm({ isOpen, onClose, onSubmit, pantallas, mision }: Mis
               <label className="block text-sm font-medium text-text-primary mb-1">
                 Pantalla de inicio
               </label>
-              <select
-                value={pantallaInicioId}
-                onChange={(e) => setPantallaInicioId(e.target.value)}
-                className="w-full px-3 py-2 bg-bg-tertiary border border-border rounded-lg text-text-primary focus:outline-none focus:border-primary"
-              >
-                {pantallas.map((p, idx) => (
-                  <option key={p.id} value={p.id}>
-                    {p.titulo || `Pantalla ${idx + 1}`}
-                  </option>
-                ))}
-              </select>
+              {pantallas.length === 0 ? (
+                <div className="p-3 bg-warning/10 border border-warning/30 rounded-lg">
+                  <p className="text-sm text-warning">
+                    No hay pantallas en este flujo. Agrega pantallas primero en la pestaña "Pantallas".
+                  </p>
+                </div>
+              ) : (
+                <select
+                  value={pantallaInicioId}
+                  onChange={(e) => setPantallaInicioId(e.target.value)}
+                  className="w-full px-3 py-2 bg-bg-tertiary border border-border rounded-lg text-text-primary focus:outline-none focus:border-primary"
+                >
+                  {pantallas.map((p, idx) => (
+                    <option key={p.id} value={p.id}>
+                      {p.titulo || `Pantalla ${idx + 1}`}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
 
             {/* Pantalla objetivo */}
-            <div>
-              <label className="block text-sm font-medium text-text-primary mb-1">
-                Pantalla objetivo (opcional)
-              </label>
-              <select
-                value={pantallaObjetivoId}
-                onChange={(e) => {
-                  setPantallaObjetivoId(e.target.value);
-                  setElementoObjetivo({});
-                }}
-                className="w-full px-3 py-2 bg-bg-tertiary border border-border rounded-lg text-text-primary focus:outline-none focus:border-primary"
-              >
-                <option value="">Seleccionar pantalla...</option>
-                {pantallas.map((p, idx) => (
-                  <option key={p.id} value={p.id}>
-                    {p.titulo || `Pantalla ${idx + 1}`}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {pantallas.length > 0 && (
+              <div>
+                <label className="block text-sm font-medium text-text-primary mb-1">
+                  Pantalla objetivo (opcional)
+                </label>
+                <select
+                  value={pantallaObjetivoId}
+                  onChange={(e) => {
+                    setPantallaObjetivoId(e.target.value);
+                    setElementoObjetivo({});
+                  }}
+                  className="w-full px-3 py-2 bg-bg-tertiary border border-border rounded-lg text-text-primary focus:outline-none focus:border-primary"
+                >
+                  <option value="">Seleccionar pantalla...</option>
+                  {pantallas.map((p, idx) => (
+                    <option key={p.id} value={p.id}>
+                      {p.titulo || `Pantalla ${idx + 1}`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             {/* Elemento objetivo */}
             {pantallaObjetivoId && elementosDisponibles.length > 0 && (
@@ -239,7 +249,7 @@ export function MisionForm({ isOpen, onClose, onSubmit, pantallas, mision }: Mis
             </button>
             <button
               type="submit"
-              disabled={isSubmitting || !nombre.trim() || !instrucciones.trim()}
+              disabled={isSubmitting || !nombre.trim() || !instrucciones.trim() || pantallas.length === 0}
               className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-dark text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isSubmitting ? (

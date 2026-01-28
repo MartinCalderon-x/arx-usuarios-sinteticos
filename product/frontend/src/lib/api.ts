@@ -586,8 +586,9 @@ export interface Pantalla {
 
 export interface ElementoClickeable {
   id: string;
-  tipo: 'link' | 'button';
+  tipo: 'link' | 'button' | 'input' | 'tab' | 'menu' | 'icon' | 'card' | 'image';
   texto?: string;
+  descripcion?: string;
   href?: string;
   bbox: {
     x: number;
@@ -595,4 +596,221 @@ export interface ElementoClickeable {
     width: number;
     height: number;
   };
+  confianza?: number;
+  es_cta_principal?: boolean;
+  accesibilidad?: string;
+}
+
+// ============================================
+// Usability Testing
+// ============================================
+
+export const usabilityApi = {
+  // Element Detection
+  detectarElementos: async (pantallaId: string) => {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/usability/pantallas/${pantallaId}/detectar-elementos`, {
+      method: 'POST',
+      headers,
+    });
+    return handleResponse<{
+      pantalla_id: string;
+      elementos_detectados: number;
+      elementos: ElementoClickeable[];
+    }>(response);
+  },
+
+  updateElementos: async (pantallaId: string, elementos: ElementoClickeable[]) => {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/usability/pantallas/${pantallaId}/elementos`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ elementos_clickeables: elementos }),
+    });
+    return handleResponse<{ pantalla_id: string; elementos_actualizados: number }>(response);
+  },
+
+  // Misiones
+  listMisiones: async (flujoId: string) => {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/usability/flujos/${flujoId}/misiones`, { headers });
+    return handleResponse<{ misiones: Mision[]; total: number }>(response);
+  },
+
+  getMision: async (flujoId: string, misionId: string) => {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/usability/flujos/${flujoId}/misiones/${misionId}`, { headers });
+    return handleResponse<MisionDetail>(response);
+  },
+
+  createMision: async (flujoId: string, data: MisionCreate) => {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/usability/flujos/${flujoId}/misiones`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(cleanEmptyValues(data)),
+    });
+    return handleResponse<Mision>(response);
+  },
+
+  updateMision: async (flujoId: string, misionId: string, data: MisionUpdate) => {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/usability/flujos/${flujoId}/misiones/${misionId}`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify(cleanEmptyValues(data)),
+    });
+    return handleResponse<Mision>(response);
+  },
+
+  deleteMision: async (flujoId: string, misionId: string) => {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/usability/flujos/${flujoId}/misiones/${misionId}`, {
+      method: 'DELETE',
+      headers,
+    });
+    return handleResponse<{ message: string }>(response);
+  },
+
+  // Simulaciones
+  runSimulation: async (misionId: string, arquetipoIds: string[]) => {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/usability/misiones/${misionId}/simular`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ arquetipo_ids: arquetipoIds }),
+    });
+    return handleResponse<SimulacionResult>(response);
+  },
+
+  listSimulaciones: async (misionId: string) => {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/usability/misiones/${misionId}/simulaciones`, { headers });
+    return handleResponse<{ simulaciones: Simulacion[]; total: number }>(response);
+  },
+
+  getMetricas: async (misionId: string) => {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/api/usability/misiones/${misionId}/metricas`, { headers });
+    return handleResponse<UsabilityMetricas>(response);
+  },
+};
+
+// Usability Types
+export interface Mision {
+  id: string;
+  flujo_id: string;
+  nombre: string;
+  instrucciones: string;
+  pantalla_inicio_id?: string;
+  pantalla_objetivo_id?: string;
+  elemento_objetivo?: {
+    tipo?: string;
+    texto?: string;
+  };
+  max_pasos: number;
+  estado: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface MisionCreate {
+  nombre: string;
+  instrucciones: string;
+  pantalla_inicio_id?: string;
+  pantalla_objetivo_id?: string;
+  elemento_objetivo?: {
+    tipo?: string;
+    texto?: string;
+  };
+  max_pasos?: number;
+}
+
+export interface MisionUpdate {
+  nombre?: string;
+  instrucciones?: string;
+  pantalla_inicio_id?: string;
+  pantalla_objetivo_id?: string;
+  elemento_objetivo?: {
+    tipo?: string;
+    texto?: string;
+  };
+  max_pasos?: number;
+  estado?: string;
+}
+
+export interface MisionDetail extends Mision {
+  simulaciones: Simulacion[];
+}
+
+export interface Simulacion {
+  id: string;
+  mision_id: string;
+  arquetipo_id: string;
+  completada: boolean;
+  exito: boolean;
+  path_tomado: SimulacionPaso[];
+  pasos_totales: number;
+  misclicks: number;
+  tiempo_estimado_ms?: number;
+  fricciones: SimulacionFriccion[];
+  feedback_arquetipo?: string;
+  emociones: Record<string, number>;
+  arquetipo?: {
+    id: string;
+    nombre: string;
+    nivel_digital?: string;
+  };
+  created_at?: string;
+}
+
+export interface SimulacionPaso {
+  paso: number;
+  pantalla_id: string;
+  pantalla_titulo?: string;
+  elemento_clickeado: {
+    id: string;
+    texto: string;
+  };
+  razonamiento: string;
+  confusion: boolean;
+  emocion: string;
+  es_misclick: boolean;
+  tiempo_ms: number;
+}
+
+export interface SimulacionFriccion {
+  tipo: string;
+  pantalla_id?: string;
+  elemento_id?: string;
+  descripcion: string;
+}
+
+export interface SimulacionResult {
+  mision_id: string;
+  total_simulaciones: number;
+  exitosas: number;
+  resultados: Simulacion[];
+}
+
+export interface UsabilityMetricas {
+  total_simulaciones: number;
+  success_rate: number;
+  avg_misclicks: number;
+  avg_pasos: number;
+  avg_tiempo_ms: number;
+  total_fricciones: number;
+  fricciones_por_tipo: Record<string, number>;
+  metrics_by_nivel: {
+    bajo?: NivelMetricas;
+    medio?: NivelMetricas;
+    alto?: NivelMetricas;
+  };
+}
+
+export interface NivelMetricas {
+  total: number;
+  exitos: number;
+  success_rate: number;
+  avg_misclicks: number;
 }

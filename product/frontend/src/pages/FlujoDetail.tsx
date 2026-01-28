@@ -14,10 +14,17 @@ import {
   ChevronRight,
   X,
   Upload,
+  Target,
+  BarChart3,
+  Scan,
+  MousePointer2,
 } from 'lucide-react';
-import { flujosApi, type FlujoDetail as FlujoDetailType, type Pantalla } from '../lib/api';
+import { flujosApi, usabilityApi, type FlujoDetail as FlujoDetailType, type Pantalla } from '../lib/api';
+import { MisionesTab } from '../components/flujos/MisionesTab';
+import { ElementOverlay } from '../components/flujos/ElementOverlay';
 
-type ViewMode = 'screenshot' | 'heatmap' | 'overlay';
+type ViewMode = 'screenshot' | 'heatmap' | 'overlay' | 'elements';
+type TabMode = 'pantallas' | 'misiones';
 
 export function FlujoDetail() {
   const { id } = useParams();
@@ -29,6 +36,8 @@ export function FlujoDetail() {
   const [viewMode, setViewMode] = useState<ViewMode>('overlay');
   const [showAddModal, setShowAddModal] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [activeTab, setActiveTab] = useState<TabMode>('pantallas');
+  const [detectingElements, setDetectingElements] = useState(false);
 
   useEffect(() => {
     if (id) loadFlujo(id);
@@ -89,6 +98,32 @@ export function FlujoDetail() {
     handleFileUpload(e.dataTransfer.files);
   }, [id]);
 
+  async function handleDetectElements() {
+    if (!selectedPantalla || !id) return;
+    setDetectingElements(true);
+    try {
+      const result = await usabilityApi.detectarElementos(selectedPantalla.id);
+      // Update the pantalla in local state
+      if (flujo) {
+        const updatedPantallas = flujo.pantallas.map((p) =>
+          p.id === selectedPantalla.id
+            ? { ...p, elementos_clickeables: result.elementos }
+            : p
+        );
+        setFlujo({ ...flujo, pantallas: updatedPantallas });
+        setSelectedPantalla({
+          ...selectedPantalla,
+          elementos_clickeables: result.elementos,
+        });
+      }
+    } catch (error) {
+      console.error('Error detecting elements:', error);
+      alert('Error al detectar elementos');
+    } finally {
+      setDetectingElements(false);
+    }
+  }
+
   function getCurrentImageUrl(): string | undefined {
     if (!selectedPantalla) return undefined;
     switch (viewMode) {
@@ -135,31 +170,76 @@ export function FlujoDetail() {
   return (
     <div className="h-[calc(100vh-3rem)] flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between pb-4 border-b border-border flex-shrink-0">
-        <div className="flex items-center gap-4">
-          <button
-            onClick={() => navigate('/flujos')}
-            className="p-2 text-text-secondary hover:text-text-primary hover:bg-bg-tertiary rounded-lg transition-colors"
-          >
-            <ArrowLeft size={20} />
-          </button>
-          <div>
-            <h1 className="text-xl font-bold text-text-primary">{flujo.nombre}</h1>
-            <p className="text-sm text-text-secondary">
-              {flujo.total_pantallas} {flujo.total_pantallas === 1 ? 'pantalla' : 'pantallas'}
-            </p>
+      <div className="pb-4 border-b border-border flex-shrink-0">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => navigate('/flujos')}
+              className="p-2 text-text-secondary hover:text-text-primary hover:bg-bg-tertiary rounded-lg transition-colors"
+            >
+              <ArrowLeft size={20} />
+            </button>
+            <div>
+              <h1 className="text-xl font-bold text-text-primary">{flujo.nombre}</h1>
+              <p className="text-sm text-text-secondary">
+                {flujo.total_pantallas} {flujo.total_pantallas === 1 ? 'pantalla' : 'pantallas'}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => navigate(`/flujos/${id}/usability`)}
+              className="flex items-center gap-2 px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-bg-tertiary rounded-lg transition-colors"
+            >
+              <BarChart3 size={18} />
+              Dashboard
+            </button>
+            {activeTab === 'pantallas' && (
+              <button
+                onClick={() => setShowAddModal(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-dark text-white rounded-lg transition-colors"
+              >
+                <Plus size={18} />
+                Agregar pantalla
+              </button>
+            )}
           </div>
         </div>
-        <button
-          onClick={() => setShowAddModal(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-dark text-white rounded-lg transition-colors"
-        >
-          <Plus size={18} />
-          Agregar pantalla
-        </button>
+
+        {/* Tabs */}
+        <div className="flex gap-1">
+          <button
+            onClick={() => setActiveTab('pantallas')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              activeTab === 'pantallas'
+                ? 'bg-primary text-white'
+                : 'text-text-secondary hover:bg-bg-tertiary'
+            }`}
+          >
+            <Layers size={16} />
+            Pantallas
+          </button>
+          <button
+            onClick={() => setActiveTab('misiones')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              activeTab === 'misiones'
+                ? 'bg-primary text-white'
+                : 'text-text-secondary hover:bg-bg-tertiary'
+            }`}
+          >
+            <Target size={16} />
+            Misiones
+          </button>
+        </div>
       </div>
 
-      {/* Main content - 3 column layout */}
+      {/* Main content */}
+      {activeTab === 'misiones' ? (
+        <div className="flex-1 pt-4 min-h-0 overflow-y-auto">
+          <MisionesTab flujoId={id!} pantallas={flujo.pantallas} />
+        </div>
+      ) : (
+      /* Pantallas - 3 column layout */
       <div className="flex-1 flex gap-4 pt-4 min-h-0">
         {/* Column 1: Timeline */}
         <div className="w-48 flex-shrink-0 bg-bg-secondary rounded-xl border border-border overflow-hidden flex flex-col">
@@ -265,6 +345,31 @@ export function FlujoDetail() {
                     <Eye size={14} />
                     Overlay
                   </button>
+                  <button
+                    onClick={() => setViewMode('elements')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                      viewMode === 'elements'
+                        ? 'bg-primary text-white'
+                        : 'text-text-secondary hover:bg-bg-tertiary'
+                    }`}
+                  >
+                    <MousePointer2 size={14} />
+                    Elementos
+                  </button>
+                  {/* Detect elements button */}
+                  <button
+                    onClick={handleDetectElements}
+                    disabled={detectingElements}
+                    className="flex items-center gap-1.5 px-3 py-1.5 ml-2 bg-bg-tertiary hover:bg-primary/10 text-text-secondary hover:text-primary rounded-lg text-sm transition-colors disabled:opacity-50"
+                    title="Detectar elementos clickeables"
+                  >
+                    {detectingElements ? (
+                      <Loader2 size={14} className="animate-spin" />
+                    ) : (
+                      <Scan size={14} />
+                    )}
+                    Detectar
+                  </button>
                 </div>
                 {/* Navigation */}
                 <div className="flex items-center gap-2">
@@ -289,7 +394,13 @@ export function FlujoDetail() {
               </div>
               {/* Image viewer */}
               <div className="flex-1 p-4 flex items-center justify-center bg-bg-tertiary/30 overflow-auto">
-                {getCurrentImageUrl() ? (
+                {viewMode === 'elements' && selectedPantalla.screenshot_url ? (
+                  <ElementOverlay
+                    imageUrl={selectedPantalla.screenshot_url}
+                    elementos={selectedPantalla.elementos_clickeables || []}
+                    showLabels={true}
+                  />
+                ) : getCurrentImageUrl() ? (
                   <img
                     src={getCurrentImageUrl()}
                     alt={selectedPantalla.titulo || 'Pantalla'}
@@ -420,6 +531,7 @@ export function FlujoDetail() {
           )}
         </div>
       </div>
+      )}
 
       {/* Add Pantalla Modal */}
       {showAddModal && (

@@ -16,6 +16,8 @@ import ModelComparison from './pages/ModelComparison';
 import { Flujos } from './pages/Flujos';
 import { FlujoForm } from './pages/FlujoForm';
 import { FlujoDetail } from './pages/FlujoDetail';
+import { MisionDetail } from './pages/MisionDetail';
+import { UsabilityDashboard } from './pages/UsabilityDashboard';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -99,6 +101,8 @@ function AppRoutes() {
         <Route path="flujos/nuevo" element={<FlujoForm />} />
         <Route path="flujos/:id" element={<FlujoDetail />} />
         <Route path="flujos/:id/editar" element={<FlujoForm />} />
+        <Route path="flujos/:flujoId/misiones/:misionId" element={<MisionDetail />} />
+        <Route path="flujos/:flujoId/usability" element={<UsabilityDashboard />} />
       </Route>
 
       {/* Catch all */}

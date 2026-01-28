@@ -15,6 +15,8 @@ TABLE_REPORTES = "us_reportes"
 TABLE_FLUJOS = "us_flujos"
 TABLE_PANTALLAS = "us_pantallas"
 TABLE_TRANSICIONES = "us_transiciones"
+TABLE_MISIONES = "us_misiones"
+TABLE_SIMULACIONES = "us_simulaciones"
 
 
 @lru_cache
@@ -476,3 +478,120 @@ async def get_transiciones_flujo(flujo_id: str) -> list[dict]:
     client = get_supabase_client()
     result = client.table(TABLE_TRANSICIONES).select("*").eq("flujo_id", flujo_id).execute()
     return result.data or []
+
+
+# ============================================
+# Misiones (Usability Testing)
+# ============================================
+async def create_mision(flujo_id: str, data: dict, user_id: str) -> dict:
+    """Create a new usability testing mission."""
+    client = get_supabase_client()
+    data["flujo_id"] = flujo_id
+    data["user_id"] = user_id
+    result = client.table(TABLE_MISIONES).insert(data).execute()
+    return result.data[0] if result.data else None
+
+
+async def get_mision(mision_id: str, user_id: str) -> Optional[dict]:
+    """Get a mission by ID (filtered by user)."""
+    client = get_supabase_client()
+    result = client.table(TABLE_MISIONES).select("*").eq("id", mision_id).eq("user_id", user_id).execute()
+    return result.data[0] if result.data else None
+
+
+async def get_mision_with_simulaciones(mision_id: str, user_id: str) -> Optional[dict]:
+    """Get a mission with all its simulations."""
+    client = get_supabase_client()
+    result = client.table(TABLE_MISIONES).select("*").eq("id", mision_id).eq("user_id", user_id).execute()
+    if not result.data:
+        return None
+
+    mision = result.data[0]
+
+    # Get all simulations for this mission
+    sim_result = client.table(TABLE_SIMULACIONES).select("*").eq("mision_id", mision_id).order("created_at", desc=True).execute()
+    mision["simulaciones"] = sim_result.data or []
+
+    return mision
+
+
+async def list_misiones_flujo(flujo_id: str, user_id: str) -> list[dict]:
+    """List all missions for a flow."""
+    client = get_supabase_client()
+    result = client.table(TABLE_MISIONES).select("*").eq("flujo_id", flujo_id).eq("user_id", user_id).order("created_at", desc=True).execute()
+    return result.data or []
+
+
+async def update_mision(mision_id: str, data: dict, user_id: str) -> Optional[dict]:
+    """Update a mission (filtered by user)."""
+    client = get_supabase_client()
+    result = client.table(TABLE_MISIONES).update(data).eq("id", mision_id).eq("user_id", user_id).execute()
+    return result.data[0] if result.data else None
+
+
+async def delete_mision(mision_id: str, user_id: str) -> bool:
+    """Delete a mission (filtered by user). Cascade deletes simulaciones."""
+    client = get_supabase_client()
+    result = client.table(TABLE_MISIONES).delete().eq("id", mision_id).eq("user_id", user_id).execute()
+    return len(result.data) > 0 if result.data else False
+
+
+# ============================================
+# Simulaciones
+# ============================================
+async def create_simulacion(mision_id: str, arquetipo_id: str, data: dict, user_id: str) -> dict:
+    """Create a new simulation result."""
+    client = get_supabase_client()
+    data["mision_id"] = mision_id
+    data["arquetipo_id"] = arquetipo_id
+    data["user_id"] = user_id
+    result = client.table(TABLE_SIMULACIONES).insert(data).execute()
+    return result.data[0] if result.data else None
+
+
+async def get_simulacion(simulacion_id: str, user_id: str) -> Optional[dict]:
+    """Get a simulation by ID (filtered by user)."""
+    client = get_supabase_client()
+    result = client.table(TABLE_SIMULACIONES).select("*").eq("id", simulacion_id).eq("user_id", user_id).execute()
+    return result.data[0] if result.data else None
+
+
+async def list_simulaciones_mision(mision_id: str, user_id: str) -> list[dict]:
+    """List all simulations for a mission."""
+    client = get_supabase_client()
+    result = client.table(TABLE_SIMULACIONES).select("*").eq("mision_id", mision_id).eq("user_id", user_id).order("created_at", desc=True).execute()
+    return result.data or []
+
+
+async def get_simulaciones_with_arquetipos(mision_id: str, user_id: str) -> list[dict]:
+    """Get simulations with archetype details for aggregated metrics."""
+    client = get_supabase_client()
+
+    # Get simulations
+    sim_result = client.table(TABLE_SIMULACIONES).select("*").eq("mision_id", mision_id).eq("user_id", user_id).execute()
+    simulaciones = sim_result.data or []
+
+    # Get unique archetype IDs
+    arquetipo_ids = list(set(s.get("arquetipo_id") for s in simulaciones if s.get("arquetipo_id")))
+
+    if not arquetipo_ids:
+        return simulaciones
+
+    # Get archetype details
+    arq_result = client.table(TABLE_ARQUETIPOS).select("id, nombre, nivel_digital").in_("id", arquetipo_ids).execute()
+    arquetipos_map = {a["id"]: a for a in (arq_result.data or [])}
+
+    # Merge archetype info into simulations
+    for sim in simulaciones:
+        arq_id = sim.get("arquetipo_id")
+        if arq_id and arq_id in arquetipos_map:
+            sim["arquetipo"] = arquetipos_map[arq_id]
+
+    return simulaciones
+
+
+async def delete_simulacion(simulacion_id: str, user_id: str) -> bool:
+    """Delete a simulation (filtered by user)."""
+    client = get_supabase_client()
+    result = client.table(TABLE_SIMULACIONES).delete().eq("id", simulacion_id).eq("user_id", user_id).execute()
+    return len(result.data) > 0 if result.data else False

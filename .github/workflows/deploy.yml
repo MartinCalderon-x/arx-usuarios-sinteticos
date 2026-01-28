@@ -196,8 +196,9 @@ jobs:
             --region ${{ env.REGION }} \
             --platform managed \
             --allow-unauthenticated \
-            --memory 512Mi \
-            --cpu 1 \
+            --memory 2Gi \
+            --cpu 2 \
+            --timeout 120 \
             --max-instances 3 \
             --set-env-vars "GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }}" \
             --set-env-vars "GEMINI_MODEL=gemini-2.0-flash" \

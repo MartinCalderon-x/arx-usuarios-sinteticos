@@ -22,7 +22,15 @@ class WebCaptureService:
             self._playwright = await async_playwright().start()
             self._browser = await self._playwright.chromium.launch(
                 headless=True,
-                args=["--no-sandbox", "--disable-setuid-sandbox"],
+                args=[
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage",  # Cloud Run has limited /dev/shm
+                    "--disable-gpu",
+                    "--disable-software-rasterizer",
+                    "--single-process",  # Reduce memory usage
+                    "--no-zygote",  # Required for single-process
+                ],
             )
             logger.info("Playwright browser initialized")
 
